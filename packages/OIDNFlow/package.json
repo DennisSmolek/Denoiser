@@ -1,0 +1,57 @@
+{
+    "name": "OIDNFlow",
+    "description": "OIDN Denoiser with tensorflow.js",
+    "keywords": [
+        "OIDN",
+        "Denoise",
+        "tensorflow.js"
+    ],
+    "version": "0.0.1",
+    "author": "Dennis Smolek",
+    "contributors": [
+        "Dennis Smolek"
+    ],
+    "license": "MIT",
+    "homepage": "https://github.com/dennissmolek/OIDNFlow.js",
+    "bugs": {
+        "url": "https://github.com/dennissmolek/OIDNFlow.js/issues"
+    },
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.mjs",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.mjs",
+            "require": "./dist/index.cjs"
+        }
+    },
+    "files": [
+        "dist/**",
+        "README.md",
+        "LICENSE"
+    ],
+    "scripts": {
+        "test": "vitest run --coverage",
+        "build": "tsc && rollup --config rollup.config.mjs",
+        "format": "prettier --write ."
+    },
+    "devDependencies": {
+        "@rollup/plugin-commonjs": "^25.0.7",
+        "@rollup/plugin-node-resolve": "^15.0.1",
+        "@rollup/plugin-typescript": "^11.1.6",
+        "@typescript-eslint/eslint-plugin": "^7.7.1",
+        "@typescript-eslint/parser": "^7.5.0",
+        "eslint": "^9.0.0",
+        "prettier": "^3.2.5",
+        "rollup": "^4.14.0",
+        "rollup-plugin-copy": "^3.5.0",
+        "rollup-plugin-filesize": "^10.0.0",
+        "tslib": "^2.6.3",
+        "typescript": "^5.5.2"
+    },
+    "dependencies": {
+        "@tensorflow/tfjs": "^4.20.0",
+        "@tensorflow/tfjs-vis": "^1.5.1"
+    }
+}

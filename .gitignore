@@ -1,0 +1,33 @@
+# Ignore compiled output
+dist/
+
+# Ignore dependencies
+node_modules/
+
+# Ignore build artifacts
+*.js
+*.js.map
+*.d.ts
+*.d.ts.map
+
+# Ignore IDE and editor files
+.vscode/
+.idea/
+*.code-workspace
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Ignore environment-specific files
+.env
+.env.local
+.env.*.local
+.env.test
+.env.production
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
