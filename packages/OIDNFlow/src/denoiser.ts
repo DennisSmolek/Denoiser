@@ -1,6 +1,7 @@
 //tf
 import * as tf from '@tensorflow/tfjs';
 import { Weights } from './weights';
+import { loadTestTZA } from './tza';
 
 export class Denoiser {
     // counter to how many times the model was built
@@ -19,15 +20,21 @@ export class Denoiser {
     // TODO set actual options
     tfBackend: tf.MathBackendWebGL | null = null;
 
-    constructor(inputString?: string) {
+    constructor() {
         this.weights = Weights.getInstance();
-        if (inputString) {
-            this.baseString = inputString;
-        }
+        console.log('Denoiser initialized');
+
     }
 
-    execute() {
-        console.log(`Denoising...${this.baseString}`);
+    async execute() {
+        console.log('Denoising...');
+        const testTensorMap = await this.weights.getCollection();
+        for (const tensor of testTensorMap) {
+            console.log(tensor[0]);
+            tensor[1].print();
+        }
+
+
     }
 
     // Other methods...

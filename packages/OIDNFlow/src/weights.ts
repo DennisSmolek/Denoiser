@@ -24,25 +24,56 @@ models.nrm           = {blobs::weights::rt_nrm,
                         blobs::weights::rt_nrm_large};
                         */
 
+import { Tensor } from "@tensorflow/tfjs";
+import { TensorMap, loadDefaultTZAFile, loadTZAFile, parseTZA } from "./tza";
+
+/* The "models" are just collections of weights based on these main parameters:
+If there is a beauty pass (you can denoise just albedo and normal)
+If there is a normal pass
+If there is an albedo pass
+If those passes are already clean (cleanAux)
+If the image is HDR
+If the image is sRGB (based on HDR and if its a normal)
+If the image has directionals
+The quality of the denoising
+
+The models I expect most are ldr and ldr_calb_cnrm which is a plain beauty pass 
+or a beauty pass with CLEAN albedo and normal.
+Becasuse these are not actual tensorflow models I wont call them that, internally they
+were already typed as TensorMaps
+*/
+type Collections = Map<string, TensorMap>;
 export class Weights {
     private static instance: Weights;
-    private weights: Map<string, Float32Array>;
+    private collections: Collections;
 
     private constructor() {
         console.log('weights initialized');
-        this.weights = new Map();
+        this.collections = new Map();
     }
 
     public static getInstance(): Weights {
-        if (!Weights.instance) {
+        if (!Weights.instance)
             Weights.instance = new Weights();
-        }
+
         return Weights.instance;
     }
 
-    add(weight: Float32Array, name: string) {
-        this.weights.set(name, weight);
+    async getCollection(collection = 'rt_ldr', path?: string): Promise<TensorMap> {
+        //if we already have the collection return it
+        if (this.collections.has(collection)) return this.collections.get(collection)!;
+        // else load it remote
+        let buffer: ArrayBuffer;
+        if (path) buffer = await loadTZAFile(path);
+        else buffer = await loadDefaultTZAFile(`${collection}.tza`);
+        const tensorMap = await parseTZA(buffer);
+        this.collections.set(collection, tensorMap);
+        return tensorMap;
     }
 
-    // Other methods...
+    // util
+    has(collection: string) {
+        return this.collections.has(collection);
+    }
+
 }

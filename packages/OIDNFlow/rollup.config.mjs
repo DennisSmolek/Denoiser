@@ -3,6 +3,8 @@ import { nodeResolve } from '@rollup/plugin-node-resolve';
 import typescript from '@rollup/plugin-typescript';
 import path from 'path';
 import filesize from 'rollup-plugin-filesize';
+import copy from 'rollup-plugin-copy';
+
 
 const external = [
 ];
@@ -31,7 +33,14 @@ export default [
             typescript({
                 tsconfig: path.resolve('tsconfig.json')
             }),
-            filesize()
+            filesize(),
+            copy({
+                targets: [
+                    { src: 'tzas/*', dest: 'dist/tzas' }
+                ],
+                hook: 'writeBundle', // Ensures copying is done after the bundle is written
+                verbose: true
+            })
         ],
         // disable three-stdlib eval warning for now
         onwarn: function (warning, warn) {
