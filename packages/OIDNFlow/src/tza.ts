@@ -78,7 +78,6 @@ export function parseTZA(buffer: ArrayBuffer): TensorMap {
     if (magic !== 0x41D7) {
         throw new Error('Invalid or corrupted weights blob');
     }
-
     // Parse the version
     const majorVersion = view.getUint8(offset++);
     //const minorVersion = view.getUint8(offset++);
@@ -87,12 +86,10 @@ export function parseTZA(buffer: ArrayBuffer): TensorMap {
     if (majorVersion !== 2) {
         throw new Error('Unsupported weights blob version');
     }
-    console.log('About to parse the table, current offset:', offset)
     // Parse the table offset and jump to the table
     const tableOffset = view.getBigUint64(offset, true);
     offset = Number(tableOffset);
 
-    console.log('offset after table:', offset)
     // Parse the number of tensors
     const numTensors = view.getUint32(offset, true);
     offset += 4;

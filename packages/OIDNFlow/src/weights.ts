@@ -24,8 +24,7 @@ models.nrm           = {blobs::weights::rt_nrm,
                         blobs::weights::rt_nrm_large};
                         */
 
-import { Tensor } from "@tensorflow/tfjs";
-import { TensorMap, loadDefaultTZAFile, loadTZAFile, parseTZA } from "./tza";
+import { type TensorMap, loadDefaultTZAFile, loadTZAFile, parseTZA } from "./tza";
 
 /* The "models" are just collections of weights based on these main parameters:
 If there is a beauty pass (you can denoise just albedo and normal)
@@ -48,7 +47,7 @@ export class Weights {
     private collections: Collections;
 
     private constructor() {
-        console.log('weights initialized');
+        console.log('Weights initialized...');
         this.collections = new Map();
     }
 
