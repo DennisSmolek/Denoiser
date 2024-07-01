@@ -130,12 +130,7 @@ export function parseTZA(buffer: ArrayBuffer): TensorMap {
             slicedBuffer = new Float32Array(buffer.slice(tensorOffset, tensorOffset + numElements * 4));
         } else if (dataType === 'h') {
             // Assuming conversion to Float32 is needed
-            const uint16Array = new Uint16Array(buffer.slice(tensorOffset, tensorOffset + numElements * 2));
-            // Convert Uint16Array to Float32Array if necessary
-            slicedBuffer = new Float32Array(uint16Array.length);
-            for (let i = 0; i < uint16Array.length; i++) {
-                slicedBuffer[i] = uint16Array[i]; // Simple conversion, adjust as needed
-            }
+            slicedBuffer = float16ToFloat32(buffer.slice(tensorOffset, tensorOffset + numElements * 2));
         } else {
             throw new Error('Invalid tensor data type');
         }
@@ -155,4 +150,81 @@ export function parseTZA(buffer: ArrayBuffer): TensorMap {
     }
 
     return tensorMap;
+}
+
+// Util to convert float16 to float32
+/*
+function float16ToFloat32(inputArray: Uint16Array): Float32Array {
+    const output = new Float32Array(inputArray.length);
+    for (let i = 0; i < inputArray.length; i++) {
+        const value = inputArray[i];
+
+        // Extracting the binary components from 16-bit float
+        const sign = (value & 0x8000) >> 15;
+        const exponent = (value & 0x7C00) >> 10;
+        const fraction = value & 0x03FF;
+
+        if (exponent === 0) {
+            if (fraction === 0) {
+                // Zero
+                output[i] = sign === 0 ? 0.0 : -0.0;
+            } else {
+                // Subnormal numbers
+                const float32Exponent = 127 - 15 - 10; // Bias adjustment and shift
+                const float32Fraction = fraction / 1024;
+                output[i] = (sign === 0 ? 1 : -1) * float32Fraction * Math.pow(2, float32Exponent);
+            }
+        } else if (exponent === 0x1F) {
+            // Infinity or NaN
+            if (fraction === 0) {
+                output[i] = sign === 0 ? Infinity : -Infinity;
+            } else {
+                output[i] = NaN;
+            }
+        } else {
+            // Normalized numbers
+            const float32Exponent = exponent - 15 + 127; // Adjusting the exponent
+            const float32Fraction = fraction / 1024;
+            output[i] = (sign === 0 ? 1 : -1) * (1 + float32Fraction) * Math.pow(2, float32Exponent);
+        }
+    }
+    return output;
+}*/
+
+function float16ToFloat32(buffer: ArrayBuffer): Float32Array {
+    const length = buffer.byteLength / 2; // Each Float16 takes 2 bytes
+    const input = new Uint16Array(buffer);
+    const output = new Float32Array(length);
+
+    for (let i = 0; i < length; i++) {
+        const value = input[i];
+        const sign = (value & 0x8000) >> 15;
+        const exponent = (value & 0x7C00) >> 10;
+        const fraction = value & 0x03FF;
+
+        if (exponent === 0) {
+            if (fraction === 0) {
+                output[i] = sign === 0 ? 0.0 : -0.0;
+            } else {
+                // Subnormal numbers
+                const normalizedFraction = fraction / 0x400;
+                const m = Math.pow(2, 1 - 15); // 2^(1-15) for normalization
+                output[i] = (sign === 0 ? 1 : -1) * normalizedFraction * m;
+            }
+        } else if (exponent === 0x1F) {
+            // Infinity and NaN
+            if (fraction === 0) {
+                output[i] = sign === 0 ? Infinity : -Infinity;
+            } else {
+                output[i] = NaN;
+            }
+        } else {
+            // Normalized numbers
+            const normalizedExponent = exponent - 15 + 127; // Adjust exponent from Float16 to Float32
+            const normalizedFraction = fraction / 0x400;
+            output[i] = (sign === 0 ? 1 : -1) * (1 + normalizedFraction) * Math.pow(2, normalizedExponent - 127);
+        }
+    }
+
+    return output;
 }

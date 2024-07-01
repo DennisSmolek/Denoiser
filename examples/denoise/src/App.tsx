@@ -17,7 +17,7 @@ function App() {
 		if (hasMounted.current) return;
 		hasMounted.current = true;
 		denoiser.current = new Denoiser();
-		denoiser.current.debugging = true;
+		//denoiser.current.debugging = true;
 
 		// get the height and width of the noisey image
 	}, []);

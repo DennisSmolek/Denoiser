@@ -114,23 +114,27 @@ export class Denoiser {
 
     async execute() {
         console.log('%c Denoiser: Denoising...', 'background: blue; color: white;');
+        const startTime = performance.now();
         if (this.isDirty) await this.build();
         // send the input to the model
         const inputTensor = await this.handleInput();
-        //inputTensor.print();
         this.unet.inputTensor = inputTensor;
-        // debug pass input to output, no model
-        const result = await this.unet.execute();
-        //check if the input and the result are the same
-        //const result = tf.clone(inputTensor);
-        const isEqual = tf.equal(inputTensor, result);
-        // print raw output 
-        //isEqual.print();
-        // check if its totally equal
-        console.log('Are they equal:');
-        isEqual.all().print();
 
-        return await this.handleOutput(result);
+        const result = await this.unet.execute();
+        //const result = tf.clone(inputTensor);
+        if (this.debugging) {
+            const isEqual = tf.equal(inputTensor, result);
+            // check if its totally equal
+            console.log('Make sure model is a pass trough:');
+            isEqual.all().print();
+        }
+
+        const output = await this.handleOutput(result);
+        console.log('Output Tensor')
+        output.print();
+        const endTime = performance.now();
+        console.log('Denoiser: Execution Time:', endTime - startTime);
+        return output;
     }
 
     private async handleInput(): Promise<Tensor4D> {
@@ -161,7 +165,7 @@ export class Denoiser {
         let outputImage = result.squeeze() as tf.Tensor3D;
         // outputImage.print();
         // stops infinite values but might be whiting out things
-        // outputImage = tf.clipByValue(outputImage, 0, 1);
+        outputImage = tf.clipByValue(outputImage, 0, 1);
         // check the datatype and shape of the outputImage
         console.log('Output Image shape:', outputImage.shape, 'dtype:', outputImage.dtype);
         // normalize the output
@@ -201,11 +205,17 @@ export class Denoiser {
         if (this.props.useColor) channels += 3;
         if (this.props.useAlbedo) channels += 3;
         if (this.props.useNormal) channels += 3;
+
         this.unet = new UNet({ weights: this.activeTensorMap, size, height: this.props.height, width: this.props.width, channels });
-        //if (this.debugging) this.unet.debugBuild();
-        if (this.debugging) this.unet.buildPassthrough();
+
+        const startTime = performance.now();
+        if (this.debugging) this.unet.debugBuild();
         else this.unet.build();
+        const endTime = performance.now();
+        console.log('Denoiser: Build Time:', endTime - startTime);
+
         this.timesGenerated++;
+        this.isDirty = false;
     }
 
     //set the image and tensor
