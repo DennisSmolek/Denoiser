@@ -1,14 +1,10 @@
-// Converted from the C++ version in OIDN
-
 import * as tf from '@tensorflow/tfjs';
-
 
 // Assuming TensorMap is a Map where keys are string and values are tf.Tensor
 export type TensorMap = Map<string, tf.Tensor>;
 
-
 export async function loadTestTZA(filename = 'rt_ldr_alb_nrm_small.tza'): Promise<TensorMap> {
-    console.log('file we are loading:', filename);
+    //console.log('file we are loading:', filename);
     const tza = await loadDefaultTZAFile(filename);
     //debugTZAFile(tza);
     return parseTZA(tza);
@@ -19,23 +15,21 @@ export async function loadTZAFile(url: string): Promise<ArrayBuffer> {
     const response = await fetch(url);
     if (!response.ok)
         throw new Error(`Failed to load TZA file from ${url}`);
-
-    console.log('File loaded:', url);
-    const buffer = await response.arrayBuffer();
-    return buffer;
+    //console.log('File loaded:', url);
+    return await response.arrayBuffer();
 }
 
 // load a TZA file from the default tzas in the library
 export async function loadDefaultTZAFile(fileName: string): Promise<ArrayBuffer> {
     const url = getTZAFilePath(fileName);
-    console.log('Loading default file:', url)
+    //console.log('Loading default file:', url)
     return loadTZAFile(url);
 }
 function getTZAFilePath(fileName: string): string {
     if (!fileName) throw new Error('No filename provided in path getting');
     // Assuming the library's package name is 'my-library' and files are in 'tza' folder
     const relativePath = `./tzas/${fileName}`;
-    console.log('relative path:', relativePath);
+    //console.log('relative path:', relativePath);
     return new URL(relativePath, import.meta.url).href;
 }
 
@@ -63,12 +57,11 @@ export function debugTZAFile(buffer: ArrayBuffer): void {
 
 export function parseTZA(buffer: ArrayBuffer): TensorMap {
     const tensorMap = new Map<string, tf.Tensor>();
-
     const view = new DataView(buffer);
     // log out the data view stats
-    console.log('byteLength:', view.byteLength);
-    console.log('byteOffset:', view.byteOffset);
-    console.log('buffer:', view.buffer);
+    //console.log('byteLength:', view.byteLength);
+    // console.log('byteOffset:', view.byteOffset);
+    // console.log('buffer:', view.buffer);
 
     let offset = 0;
 
@@ -110,6 +103,7 @@ export function parseTZA(buffer: ArrayBuffer): TensorMap {
             shape.push(view.getUint32(offset, true));
             offset += 4;
         }
+        //console.log(`Weight shape for ${name}:`, shape)
 
         // Parse the layout of the tensor (not directly used in TensorFlow.js)
         // const layout = new TextDecoder().decode(buffer.slice(offset, offset + ndims));
@@ -152,7 +146,9 @@ export function parseTZA(buffer: ArrayBuffer): TensorMap {
             // Adjust calculations or handle error
         }
 
-        const tensor = tf.tensor(slicedBuffer, shape);
+        let tensor = tf.tensor(slicedBuffer, shape);
+        // transpose the weight from )IHW to HWIO
+        if (shape.length === 4) tensor = tensor.transpose([2, 3, 1, 0]);
 
         // Add the tensor to the map
         tensorMap.set(name, tensor);

@@ -1,5 +1,6 @@
 //tf
 import * as tf from '@tensorflow/tfjs';
+import type { Tensor4D } from '@tensorflow/tfjs';
 import { Weights } from './weights';
 import type { TensorMap } from './tza';
 import { UNet } from './unet';
@@ -43,12 +44,14 @@ export class Denoiser {
     // configurable options that require rebuilding the model
     activeBackend: 'cpu' | 'webgl' | 'wasm' | 'webgpu' = 'webgpu';
 
-    // changable options
+    //* changable options
     //if we output inplace on the same input
     inplace = false;
     // used when debugging
     canvas?: HTMLCanvasElement;
     outputToCanvas = false;
+
+    debugging = false;
 
     // holders
     // TODO set actual options
@@ -56,41 +59,36 @@ export class Denoiser {
 
     private unet!: UNet;
     private inputTensors: Map<'color' | 'albedo' | 'normal', tf.Tensor3D> = new Map();
+
+    private concatenatedImage!: tf.Tensor3D;
+
+    // this allows us to bypass everything and pass a tensor directly to the model
+    directInputTensor?: tf.Tensor3D;
     private activeTensorMap!: TensorMap;
     private isDirty = false;
 
     constructor() {
         this.weights = Weights.getInstance();
-        console.log('Denoiser initialized');
+        console.log('Denoiser initialized..');
     }
 
     //* Getters and Setters ------------------------------
     set height(height: number) {
-        if (this.timesGenerated > 0) {
-            this.isDirty = true;
-            console.log('Model is dirty');
-        }
+        this.isDirty = true;
         this.props.height = height;
     }
     set width(width: number) {
-        if (this.timesGenerated > 0) {
-            this.isDirty = true;
-            console.log('Model is dirty');
-        }
+        this.isDirty = true;
         this.props.width = width;
     }
     set quality(quality: 'fast' | 'high' | 'balanced') {
-        if (this.timesGenerated > 0) {
-            this.isDirty = true;
-            console.log('Model is dirty');
-        }
+        this.isDirty = true;
         this.props.quality = quality;
     }
 
     // determine which tensormap to use
     private determineTensorMap() {
         // example rt_ldr_small | rt_ldr_calb_cnrm (with clean aux)
-        let size: 'small' | 'large' | 'default' = 'default';
         let tensorMapLabel = this.props.filterType;
         tensorMapLabel += this.props.hdr ? '_hdr' : '_ldr';
         // if you use cleanAux you MUST provide both albedo and normal
@@ -101,6 +99,7 @@ export class Denoiser {
         }
 
         //* quality. 
+        let size: 'small' | 'large' | 'default' = 'default';
         // small and large only exist in specific cases
         const hasSmall = ['rt_hdr', 'rt_ldr', 'rt_hdr_alb', 'rt_ldr_alb', 'rt_hdr_alb_nrm', 'rt_ldr_alb_nrm', 'rt_hdr_calb_cnrm', 'rt_ldr_calb_cnrm'];
         const hasLarge = ['rt_alb', 'rt_nrm', 'rt_hdr_calb_cnrm', 'rt_ldr_calb_cnrm'];
@@ -110,25 +109,92 @@ export class Denoiser {
 
         if (size !== 'default') tensorMapLabel += `_${size}`;
 
-
         return { tensorMapLabel, size };
     }
 
     async execute() {
-        console.log('Denoising...');
+        console.log('%c Denoiser: Denoising...', 'background: blue; color: white;');
         if (this.isDirty) await this.build();
+        // send the input to the model
+        const inputTensor = await this.handleInput();
+        //inputTensor.print();
+        this.unet.inputTensor = inputTensor;
+        // debug pass input to output, no model
         const result = await this.unet.execute();
-        if (this.outputToCanvas || this.canvas) {
-            tf.browser.toPixels(result, this.canvas);
+        //check if the input and the result are the same
+        //const result = tf.clone(inputTensor);
+        const isEqual = tf.equal(inputTensor, result);
+        // print raw output 
+        //isEqual.print();
+        // check if its totally equal
+        console.log('Are they equal:');
+        isEqual.all().print();
+
+        return await this.handleOutput(result);
+    }
+
+    private async handleInput(): Promise<Tensor4D> {
+        // TODO: if we ever want to denoise just normal or albedo this will have to change as it requires color
+        const color = this.inputTensors.get('color');
+        const albedo = this.inputTensors.get('albedo');
+        const normal = this.inputTensors.get('normal');
+
+        // make sure we have inputs if not throw an error
+        if (!color) throw new Error('Denoiser must support color pass at the moment :(');
+
+        // Step 2: Concatenate images along the channel dimension
+        // if the concatenated image is not the same as the color image dispose of it
+        //todo: this can all probably be wrapped in a tf.tidy
+        if (albedo || normal && this.concatenatedImage !== color) this.concatenatedImage.dispose();
+        if (albedo) {
+            if (normal) this.concatenatedImage = tf.concat([color, albedo, normal], -1);
+            else this.concatenatedImage = tf.concat([color, albedo], -1);
+        } else if (normal) {
+            this.concatenatedImage = tf.concat([color, normal], -1);
+        } else this.concatenatedImage = color;
+        // Step 3: Reshape for batch size
+        return this.concatenatedImage.expandDims(0) as Tensor4D; // Now shape is [1, height, width, 9]
+    }
+
+    private async handleOutput(result: tf.Tensor4D) {
+        // Now that we've ensured output is not an array, we can safely call squeeze()
+        let outputImage = result.squeeze() as tf.Tensor3D;
+        // outputImage.print();
+        // stops infinite values but might be whiting out things
+        // outputImage = tf.clipByValue(outputImage, 0, 1);
+        // check the datatype and shape of the outputImage
+        console.log('Output Image shape:', outputImage.shape, 'dtype:', outputImage.dtype);
+        // normalize the output
+
+        /* This normalization block is kinda dirty and comes from the input data not being normalized first
+        lets try normalizing the input and see how it flows through.
+        // Check if the maximum value in the tensor is greater than 1 to decide on normalization
+        outputImage = outputImage.toFloat(); // Ensure the tensor is in float32 format
+        tf.tidy(() => {
+            const maxValue = outputImage.max().arraySync();
+            // Asserting the type of maxValue to be number
+            if (typeof maxValue === 'number' && maxValue > 1) {
+                outputImage = outputImage.div(tf.scalar(255));
+            }
+        });
+        */
+        if (this.outputToCanvas && this.canvas) {
+            tf.browser.toPixels(outputImage, this.canvas);
         }
-        return result;
+        return outputImage;
+    }
+
+    // raw debug for input testing. should draw the image EXACTLY
+    rawCanvasDraw() {
+        const color = this.inputTensors.get('color');
+        if (!color || !this.canvas) return;
+        tf.browser.toPixels(color, this.canvas);
     }
 
     async build() {
-        console.log('Building model...');
+        console.log('Denoiser starting Build...');
         const { tensorMapLabel, size } = this.determineTensorMap();
-        console.log('Denoiser: Using tensor map:', tensorMapLabel)
-        console.log('Denoiser: Using size:', size)
+        console.log('Denoiser: Using tensor map:', tensorMapLabel, 'size:', size)
         this.activeTensorMap = await this.weights.getCollection(tensorMapLabel);
         // calculate channels
         let channels = 0;
@@ -136,11 +202,9 @@ export class Denoiser {
         if (this.props.useAlbedo) channels += 3;
         if (this.props.useNormal) channels += 3;
         this.unet = new UNet({ weights: this.activeTensorMap, size, height: this.props.height, width: this.props.width, channels });
-        this.unet.build();
-        // if we already have input tensors set them
-        for (const [name, tensor] of this.inputTensors) {
-            this.unet.setImage(name, tensor);
-        }
+        //if (this.debugging) this.unet.debugBuild();
+        if (this.debugging) this.unet.buildPassthrough();
+        else this.unet.build();
         this.timesGenerated++;
     }
 
@@ -153,13 +217,15 @@ export class Denoiser {
     // creates the image tensor
     createImageTensor(input: ImgInput): tf.Tensor3D {
         const imgTensor = tf.browser.fromPixels(input);
-        return imgTensor;
+        // normalize the tensor
+        const normalized = imgTensor.toFloat().div(tf.scalar(255));
+        return normalized as tf.Tensor3D;
+        //return imgTensor;
     }
 
     // set the input tensor on the unet
     setImageTensor(name: 'color' | 'albedo' | 'normal', tensor: tf.Tensor3D) {
         this.inputTensors.set(name, tensor);
-        this.unet.setImage(name, tensor);
     }
 
     setCanvas(canvas: HTMLCanvasElement) {

@@ -1,5 +1,6 @@
 // a UNet is the actual TF model
 import * as tf from '@tensorflow/tfjs';
+import type { Tensor4D } from '@tensorflow/tfjs';
 import type { TensorMap } from './tza';
 
 export type UnetProps = {
@@ -12,27 +13,20 @@ export type UnetProps = {
 
 // this has to be destroyed and is immutable so props wont be exposed
 export class UNet {
-    weights: TensorMap;
     height = 0;
     width = 0;
-
-    // model parameters
     inChannels = 0;
-    private outChannels = 3;
+    // changes params of the uNet
     size: 'small' | 'large' | 'xl' | 'default' = 'default';
 
-    //* Inputs
-    color?: tf.Tensor3D;
-    albedo?: tf.Tensor3D;
-    normal?: tf.Tensor3D;
-
-    private concatenatedImage!: tf.Tensor3D;
-    private inputTensor!: tf.Tensor3D;
-    // this allows us to bypass everything and pass a tensor directly to the model
-    directInputTensor?: tf.Tensor3D;
 
     //* internal
+    private _inputTensor!: Tensor4D;
     private model!: tf.LayersModel;
+    private outChannels = 3;
+    weights: TensorMap;
+
+
 
     constructor({ weights, size, height, width, channels }: UnetProps) {
         this.weights = weights;
@@ -42,9 +36,61 @@ export class UNet {
         this.inChannels = channels;
     }
 
+    //* Getter and Setters ------------------------------
+    set inputTensor(inputTensor: Tensor4D) {
+        // cleanup old one
+        if (this._inputTensor) this._inputTensor.dispose();
+        this._inputTensor = inputTensor;
+    }
+
+    async buildPassthrough() {
+        console.log('%cBuilding Passthrough UNet...', 'color: #EFA00B')
+        // Build a passthrough model that returns the input as the output
+        const input = tf.input({ shape: [this.height, this.width, this.inChannels] });
+        const output = input;
+        this.model = tf.model({ inputs: input, outputs: output });
+
+        // because this should be a 0 process pass through lets check equality
+        this.model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
+
+        return this.model;
+    }
+
+    // build a debug model that takes input does a simple downsize and upscale
+    async debugBuild() {
+        console.log('%cBuilding DEBUGING UNet...', 'color: yellow');
+        const input = tf.input({ shape: [this.height, this.width, this.inChannels] });
+
+        // Downsize
+        const downsize = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(input) as tf.SymbolicTensor;
+
+        // Upscale
+        const upscale = tf.layers.upSampling2d({ size: [2, 2] }).apply(downsize) as tf.SymbolicTensor;
+
+        // Output
+        const output = tf.layers.conv2d({
+            filters: this.outChannels,
+            kernelSize: 1,
+            padding: 'same',
+            activation: 'linear',
+        }).apply(upscale) as tf.SymbolicTensor;
+
+        // Create the model
+        this.model = tf.model({ inputs: input, outputs: output });
+
+        // Compile the model
+        this.model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
+
+        // Log the model summary
+        this.model.summary();
+
+        // Return the model
+        return this.model;
+    }
+
     async build() {
         // debug all stats
-        console.log('%cBuilding UNet...', 'color: yellow');
+        console.log('%cBuilding Standard UNet...', 'color: #57A773');
         console.log('Height:', this.height);
         console.log('Width:', this.width);
         console.log('Channels:', this.inChannels);
@@ -158,6 +204,7 @@ export class UNet {
         const weights = this.weights.get(`${name}.weight`);
         const biases = this.weights.get(`${name}.bias`);
 
+
         if (!weights || !biases) {
             throw new Error(`UNet: Missing weights or biases for layer: ${name}`);
         }
@@ -172,81 +219,35 @@ export class UNet {
         } else if (!layer.built) {
             layer.build([null, null, null, in_channels]);
         }
-        const weightsTransposed = weights.transpose([2, 3, 1, 0]);
-
         // Set the weights and biases.
-        layer.setWeights([weightsTransposed, biases]);
+        layer.setWeights([weights, biases]);
 
         return layer;
     }
 
-    // todo: determine if this can be merged with convLayer
-    private setWeightsAndBiases(name: string, layer: tf.layers.Layer) {
-        // get the weights and biases from the weights map
-        console.log('Weights:', this.weights)
-        const weights = this.weights.get(`${name}.weight`);
-        const biases = this.weights.get(`${name}.bias`);
-
-        if (!weights || !biases) throw new Error(`UNet: Missing weights or biases for layer: ${name}`);
-
-        // set the weights and biases
-        layer.setWeights([weights, biases]);
-    }
 
     async execute() {
-        // TODO: if we ever want to denoise just normal or albedo this will have to change as it requires color
-        // make sure we have inputs if not throw an error
-        if (!this.color) throw new Error('UNet: Missing input image');
+        // because I want to see the weights data
+        //console.log('input weights:', this.weights);
 
-        // Step 2: Concatenate images along the channel dimension
-        // if the concatenated image is not the same as the color image dispose of it
-        if (this.albedo || this.normal && this.concatenatedImage !== this.color) this.concatenatedImage.dispose();
-        if (this.albedo) {
-            if (this.normal) this.concatenatedImage = tf.concat([this.color, this.albedo, this.normal], -1);
-            else this.concatenatedImage = tf.concat([this.color, this.albedo], -1);
-        } else if (this.normal) {
-            this.concatenatedImage = tf.concat([this.color, this.normal], -1);
-        } else this.concatenatedImage = this.color;
-        // Step 3: Reshape for batch size
-        // destroy the old input tensor
-        if (this.inputTensor) this.inputTensor.dispose();
-        this.inputTensor = this.concatenatedImage.expandDims(0); // Now shape is [1, height, width, 9]
-
+        if (!this._inputTensor) throw new Error('Input tensor not set!');
+        if (!this.model) throw new Error('Model not built yet!');
         // Step 4: Feed to the network
-        const output = this.model.predict(this.directInputTensor || this.inputTensor);
+        const output = this.model.predict(this._inputTensor);
 
         // Ensure output is a single Tensor before calling Tensor-specific methods
         if (Array.isArray(output)) {
             throw new Error('Expected model to return a single tensor, but it returned an array.');
         }
 
-        // Now that we've ensured output is not an array, we can safely call squeeze()
-        let outputImage = output.squeeze() as tf.Tensor3D;
-        outputImage = tf.clipByValue(outputImage, 0, 1);
-        return outputImage;
+        return output as tf.Tensor4D;
     }
-    setImage(name: 'color' | 'albedo' | 'normal', tensor: tf.Tensor3D) {
-        // only allow the known names
-        if (!['color', 'albedo', 'normal'].includes(name))
-            throw new Error(`UNet: Unknown input name: ${name}`);
 
-        //destroy the old inputs
-        // biome-ignore lint/style/noNonNullAssertion: <explanation>
-        if (this[name]) this[name]!.dispose();
-
-        this[name] = tensor;
-    }
 
     //destroy the model
     destroy() {
         if (this.model) this.model.dispose();
         //dispose of the inputs
-        if (this.color) this.color.dispose();
-        if (this.albedo) this.albedo.dispose();
-        if (this.normal) this.normal.dispose();
-
-        // extra tensors
-        if (this.concatenatedImage) this.concatenatedImage.dispose();
         if (this.inputTensor) this.inputTensor.dispose();
     }
 }

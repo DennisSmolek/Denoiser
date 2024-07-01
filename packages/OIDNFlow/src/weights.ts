@@ -47,14 +47,12 @@ export class Weights {
     private collections: Collections;
 
     private constructor() {
-        console.log('Weights initialized...');
+        //console.log('Weights initialized...');
         this.collections = new Map();
     }
 
     public static getInstance(): Weights {
-        if (!Weights.instance)
-            Weights.instance = new Weights();
-
+        if (!Weights.instance) Weights.instance = new Weights();
         return Weights.instance;
     }
 
@@ -65,7 +63,8 @@ export class Weights {
         let buffer: ArrayBuffer;
         if (path) buffer = await loadTZAFile(path);
         else buffer = await loadDefaultTZAFile(`${collection}.tza`);
-        const tensorMap = await parseTZA(buffer);
+
+        const tensorMap = parseTZA(buffer);
         this.collections.set(collection, tensorMap);
         return tensorMap;
     }
@@ -74,5 +73,4 @@ export class Weights {
     has(collection: string) {
         return this.collections.has(collection);
     }
-
 }

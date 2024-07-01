@@ -17,6 +17,7 @@ function App() {
 		if (hasMounted.current) return;
 		hasMounted.current = true;
 		denoiser.current = new Denoiser();
+		denoiser.current.debugging = true;
 
 		// get the height and width of the noisey image
 	}, []);
@@ -28,21 +29,20 @@ function App() {
 		if (!imageElement || !denoiser.current) return;
 
 		const handleLoad = () => {
-			if (!denoiser.current) return;
+			const dn = denoiser.current;
+			const canvas = cleanedCanvas.current;
+			if (!dn || !canvas) return;
 			const { height, width } = imageElement;
-			denoiser.current.height = height;
-			denoiser.current.width = width;
+			dn.height = height;
+			dn.width = width;
 			console.log(`Image loaded with height: ${height} and width: ${width}`);
 			// pass the image to the denoiser
-			denoiser.current.setCanvas(cleanedCanvas.current!);
+			dn.setCanvas(canvas);
+			dn.setImage("color", imageElement);
+
 			// build the model
-			denoiser.current.build().then(() => {
-				denoiser.current.setImage("color", imageElement);
-				// pass the canvas to the denoiser
-				// execute the model
-				denoiser.current.execute().then(() => {
-					console.log("Denoising complete");
-				});
+			dn.execute().then(() => {
+				console.log("Denoising complete");
 			});
 		};
 
