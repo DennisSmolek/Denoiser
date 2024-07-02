@@ -1,6 +1,7 @@
 //tf
 import * as tf from '@tensorflow/tfjs';
 import type { Tensor4D } from '@tensorflow/tfjs';
+import '@tensorflow/tfjs-backend-webgpu';
 import { Weights } from './weights';
 import type { TensorMap } from './tza';
 import { UNet } from './unet';
@@ -70,6 +71,14 @@ export class Denoiser {
     constructor() {
         this.weights = Weights.getInstance();
         console.log('Denoiser initialized..');
+        // try to set the backend to webGPU
+        tf.setBackend('webgl').then(() => {
+            console.log('Denoiser: Backend set to webGPU');
+        }).catch((err) => {
+            console.error('Denoiser: Error setting backend to webGPU', err);
+            // see what backend is running
+            console.log('Denoiser: Backend:', tf.getBackend());
+        });
     }
 
     //* Getters and Setters ------------------------------
@@ -114,6 +123,8 @@ export class Denoiser {
 
     async execute() {
         console.log('%c Denoiser: Denoising...', 'background: blue; color: white;');
+        console.log('Using backend:', tf.getBackend());
+
         const startTime = performance.now();
         if (this.isDirty) await this.build();
         // send the input to the model
@@ -130,10 +141,10 @@ export class Denoiser {
         }
 
         const output = await this.handleOutput(result);
-        console.log('Output Tensor')
-        output.print();
+        //console.log('Output Tensor')
+        //  output.print();
         const endTime = performance.now();
-        console.log('Denoiser: Execution Time:', endTime - startTime);
+        console.log(`Denoiser: Execution Time: ${endTime - startTime}ms`);
         return output;
     }
 

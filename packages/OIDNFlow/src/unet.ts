@@ -52,12 +52,12 @@ export class UNet {
         //console.log('%cInput Tensor:', 'color: #EFA00B')
         // this._inputTensor.print();
 
-        console.log('%cTest Weight enc_conv0', 'color: #57A773')
-        const weights = this.weights.get('enc_conv0.weight');
-        weights?.print();
-        console.log('%cTest Weight enc_conv1', 'color: #57A773')
-        const weights1 = this.weights.get('enc_conv1.weight');
-        weights1?.print();
+        //console.log('%cTest Weight enc_conv0', 'color: #57A773')
+        //const weights = this.weights.get('enc_conv0.weight');
+        // weights?.print();
+        //console.log('%cTest Weight enc_conv1', 'color: #57A773')
+        //const weights1 = this.weights.get('enc_conv1.weight');
+        //weights1?.print();
 
         // Step 4: Feed to the network
         const output = this.model.predict(this._inputTensor);
@@ -95,7 +95,7 @@ export class UNet {
         console.log('Width:', this.width);
         console.log('Channels:', this.inChannels);
         console.log('Size:', this.size);
-        console.table(this.weights);
+        console.log('weights', this.weights);
 
         // input layer ---------------------------------
         const input = tf.input({ shape: [this.height, this.width, this.inChannels] });
@@ -162,7 +162,7 @@ export class UNet {
         this.model.compile({ optimizer: 'adam', loss: 'categoricalCrossentropy', metrics: ['accuracy'] });
 
         // log the model summary
-        this.model.summary();
+        //this.model.summary();
         // Return the model
         return this.model;
     }

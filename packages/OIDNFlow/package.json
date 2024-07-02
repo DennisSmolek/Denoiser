@@ -52,6 +52,7 @@
     },
     "dependencies": {
         "@tensorflow/tfjs": "^4.20.0",
+        "@tensorflow/tfjs-backend-webgpu": "^4.20.0",
         "@tensorflow/tfjs-vis": "^1.5.1"
     }
 }

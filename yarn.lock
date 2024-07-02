@@ -1013,6 +1013,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@tensorflow/tfjs-backend-webgpu@npm:^4.20.0":
+  version: 4.20.0
+  resolution: "@tensorflow/tfjs-backend-webgpu@npm:4.20.0"
+  dependencies:
+    "@tensorflow/tfjs-backend-cpu": "npm:4.20.0"
+  peerDependencies:
+    "@tensorflow/tfjs-core": 4.20.0
+  checksum: 10c0/f342018008005c368969222ec02e6a09ae140e9f95842ade56c9bebd94a6ec3b0b20f1977e2d36492a3d810a0a61aa5b04e085afb3cace482cca8ba40b3cabbf
+  languageName: node
+  linkType: hard
+
 "@tensorflow/tfjs-converter@npm:4.20.0":
   version: 4.20.0
   resolution: "@tensorflow/tfjs-converter@npm:4.20.0"
@@ -1451,6 +1462,7 @@ __metadata:
     "@rollup/plugin-node-resolve": "npm:^15.0.1"
     "@rollup/plugin-typescript": "npm:^11.1.6"
     "@tensorflow/tfjs": "npm:^4.20.0"
+    "@tensorflow/tfjs-backend-webgpu": "npm:^4.20.0"
     "@tensorflow/tfjs-vis": "npm:^1.5.1"
     "@typescript-eslint/eslint-plugin": "npm:^7.7.1"
     "@typescript-eslint/parser": "npm:^7.5.0"
