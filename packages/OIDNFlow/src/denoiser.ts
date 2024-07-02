@@ -5,6 +5,7 @@ import '@tensorflow/tfjs-backend-webgpu';
 import { Weights } from './weights';
 import type { TensorMap } from './tza';
 import { UNet } from './unet';
+import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
 
 type ImgInput = tf.PixelData | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | ImageBitmap;
 
@@ -27,6 +28,9 @@ export class Denoiser {
     timesGenerated = 0;
     // core weights will be pre-loaded but replaceable
     weights: Weights;
+    // webGL context
+    gl?: WebGLRenderingContext;
+    backend?: tf.MathBackendWebGL | WebGPUBackend | tf.MathBackendCPU;
 
     props: DenoiserProps = {
         filterType: 'rt',
@@ -68,17 +72,10 @@ export class Denoiser {
     private activeTensorMap!: TensorMap;
     private isDirty = false;
 
-    constructor() {
+    constructor(preferedBackend = 'webgpu', canvas?: HTMLCanvasElement) {
         this.weights = Weights.getInstance();
         console.log('Denoiser initialized..');
-        // try to set the backend to webGPU
-        tf.setBackend('webgl').then(() => {
-            console.log('Denoiser: Backend set to webGPU');
-        }).catch((err) => {
-            console.error('Denoiser: Error setting backend to webGPU', err);
-            // see what backend is running
-            console.log('Denoiser: Backend:', tf.getBackend());
-        });
+        this.setupBackend(preferedBackend, canvas);
     }
 
     //* Getters and Setters ------------------------------
@@ -93,6 +90,46 @@ export class Denoiser {
     set quality(quality: 'fast' | 'high' | 'balanced') {
         this.isDirty = true;
         this.props.quality = quality;
+    }
+
+    // Take in potential contexts and set the backend
+    //todo: should this be private?
+    async setupBackend(prefered = 'webgpu', canvas?: HTMLCanvasElement) {
+        // do the easy part first
+        if (!canvas) {
+            await tf.setBackend(prefered);
+            if (prefered === 'webgl') {
+                //@ts-ignore
+                this.backend = tf.getBackend() as tf.MathBackendWebGL;
+                console.log('backend:', this.backend);
+                this.gl = this.backend.gpgpu.gl;
+                return this.backend
+            }
+        }
+
+        if (prefered === 'webGPU')
+            throw new Error('We havent setup custom webGPU Contexts yet');
+
+        if (prefered !== 'webgl')
+            throw new Error('Only webgl and webgpu are supported with custom contexts');
+
+        // register the backend if it doesn't exist
+        if (tf.findBackend('oidnflow-webgl') === null) {
+            const customBackend = new tf.MathBackendWebGL(canvas);
+            tf.registerBackend('oidnflow-webgl', () => customBackend);
+        }
+
+        //tensorflow does this to restore to the default backend but I dont know if we need it
+        const savedBackend = tf.getBackend();
+        await tf.setBackend('oidnflow-webgl');
+        //@ts-ignore
+        const backend = tf.getBackend();
+        backend;
+        //@ts-ignore
+        const testGl = tf.engine().findBackend(backend).gpgpu;
+        console.log('testGl:', testGl);
+        console.log('%c Denoiser: Backend set to custom webgl', 'background: orange; color: white;');
+        return this.backend;
     }
 
     // determine which tensormap to use
@@ -123,7 +160,6 @@ export class Denoiser {
 
     async execute() {
         console.log('%c Denoiser: Denoising...', 'background: blue; color: white;');
-        console.log('Using backend:', tf.getBackend());
 
         const startTime = performance.now();
         if (this.isDirty) await this.build();

@@ -1,22 +1,33 @@
 import { useState, useEffect, useRef } from "react";
-import reactLogo from "./assets/react.svg";
-import viteLogo from "/vite.svg";
+import { useThree } from "@react-three/fiber";
+import { useTexture } from "@react-three/drei";
+
+import * as THREE from "three";
 import "./App.css";
 // for base testing import oidn
 import { Denoiser } from "OIDNFlow";
 
 function App() {
-	const [count, setCount] = useState(0);
 	const hasMounted = useRef(false);
 	const noiseyImage = useRef<HTMLImageElement>(null);
 	const cleanedCanvas = useRef<HTMLCanvasElement>(null);
 
 	const denoiser = useRef<Denoiser | null>(null);
+
+	const { gl } = useThree();
+
+	// load the sample textures
+	const [voltronTexture, piratesTexture] = useTexture([
+		"voltron.png",
+		"pirates.png",
+	]);
+
 	// Initialize the denoiser
 	useEffect(() => {
 		if (hasMounted.current) return;
 		hasMounted.current = true;
-		denoiser.current = new Denoiser();
+		console.log("gl", gl);
+		denoiser.current = new Denoiser("webgl", gl.domElement);
 		//denoiser.current.debugging = true;
 
 		// get the height and width of the noisey image
@@ -38,51 +49,11 @@ function App() {
 				dn.width = width;
 				console.log(`Image loaded with height: ${height} and width: ${width}`);
 				// pass the image to the denoiser
-				dn.setCanvas(canvas);
 				dn.setImage("color", imageElement);
 
 				// build the model
 				dn.execute().then(() => {
 					console.log("Denoising complete");
-					console.log("second pass delay 15 seconds...");
-					setTimeout(() => {
-						// clear the canvas
-						console.log("clear");
-						const ctx = canvas.getContext("2d");
-						if (!ctx) return;
-						ctx.clearRect(0, 0, width, height);
-						//draw the canvas red to show it was cleared
-						ctx.fillStyle = "red";
-						ctx.fillRect(0, 0, width, height);
-						setTimeout(() => {
-							// set the canvas to green to show we are in a new draw phase
-							ctx.fillStyle = "green";
-							ctx.fillRect(0, 0, width, height);
-							dn.execute().then(() => {
-								console.log("Second Denoising complete");
-								// go for a third time
-								console.log("third pass delay 10 seconds...");
-								setTimeout(() => {
-									// clear the canvas
-									console.log("clear");
-									const ctx = canvas.getContext("2d");
-									if (!ctx) return;
-									ctx.clearRect(0, 0, width, height);
-									//draw the canvas red to show it was cleared
-									ctx.fillStyle = "red";
-									ctx.fillRect(0, 0, width, height);
-									setTimeout(() => {
-										// set the canvas to green to show we are in a new draw phase
-										ctx.fillStyle = "green";
-										ctx.fillRect(0, 0, width, height);
-										dn.execute().then(() => {
-											console.log("Third Denoising complete");
-										});
-									}, 5000);
-								}, 5000);
-							});
-						}, 5000);
-					}, 10000);
 				});
 			}, 5000);
 		};
@@ -97,10 +68,10 @@ function App() {
 	}, []);
 	return (
 		<>
-			<div>
-				<img src="./noisey.jpg" ref={noiseyImage} alt="Noisey" />
-				<canvas ref={cleanedCanvas} id="output" width="512" height="512" />
-			</div>
+			<mesh>
+				<planeGeometry args={[1, 1]} />
+				<meshBasicMaterial color={"red"} />
+			</mesh>
 		</>
 	);
 }
