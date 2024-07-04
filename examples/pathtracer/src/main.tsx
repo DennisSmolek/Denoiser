@@ -12,7 +12,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 
 function OuterApp() {
 	return (
-		<Canvas>
+		<Canvas
+		//orthographic
+		//camera={{ position: [0, 0, 10], zoom: 1, near: 0.1, far: 1000 }}
+		>
 			<App />
 		</Canvas>
 	);
