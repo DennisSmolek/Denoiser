@@ -19,13 +19,10 @@ export class UNet {
     // changes params of the uNet
     size: 'small' | 'large' | 'xl' | 'default' = 'default';
 
-
     //* internal
     private _inputTensor!: Tensor4D;
     private model!: tf.LayersModel;
     weights: TensorMap;
-
-
 
     constructor({ weights, size, height, width, channels }: UnetProps) {
         this.weights = weights;
@@ -48,29 +45,13 @@ export class UNet {
 
         if (!this._inputTensor) throw new Error('Input tensor not set!');
         if (!this.model) throw new Error('Model not built yet!');
-        // log the input tensor
-        //console.log('%cInput Tensor:', 'color: #EFA00B')
-        // this._inputTensor.print();
 
-        //console.log('%cTest Weight enc_conv0', 'color: #57A773')
-        //const weights = this.weights.get('enc_conv0.weight');
-        // weights?.print();
-        //console.log('%cTest Weight enc_conv1', 'color: #57A773')
-        //const weights1 = this.weights.get('enc_conv1.weight');
-        //weights1?.print();
-
-        // Step 4: Feed to the network
+        // Feed to the network
         const output = this.model.predict(this._inputTensor);
 
-
-
         // Ensure output is a single Tensor before calling Tensor-specific methods
-        if (Array.isArray(output)) {
+        if (Array.isArray(output))
             throw new Error('Expected model to return a single tensor, but it returned an array.');
-        }
-        // for testing
-        //console.log('%cOutput Tensor:', 'color: #EFA00B')
-        //output.print();
 
         return output as tf.Tensor4D;
     }
@@ -90,12 +71,7 @@ export class UNet {
 
     async build() {
         // debug all stats
-        console.log('%cBuilding Standard UNet...', 'color: #57A773');
-        console.log('Height:', this.height);
-        console.log('Width:', this.width);
-        console.log('Channels:', this.inChannels);
-        console.log('Size:', this.size);
-        console.log('weights', this.weights);
+        console.log(`%cBuilding Standard UNet, %cHeight:${this.height} | Width:${this.width} | Channels:${this.inChannels} | Size:${this.size}`, 'color: #57A773', 'color: white; background-color: #57A773; padding: 2px; border-radius: 4px; font-weight: bold;');
 
         // input layer ---------------------------------
         const input = tf.input({ shape: [this.height, this.width, this.inChannels] });
@@ -103,11 +79,9 @@ export class UNet {
         //* Encoder
         // Block 1 -------------------------------------
         let x = this.convLayer('enc_conv0', input);
-
         x = this.convLayer('enc_conv1', x);
         const pool1 = this.poolLayer(x);
         x = pool1;
-
 
         // Block 2 -------------------------------------
         x = this.convLayer('enc_conv2', pool1);
@@ -124,8 +98,6 @@ export class UNet {
         //* Bottleneck ----------------------------------
         x = this.convLayer('enc_conv5a', pool4);
         x = this.convLayer('enc_conv5b', x);
-
-
 
         //* Decoder 
         // Block 4 -------------------------------------
@@ -166,6 +138,7 @@ export class UNet {
         // Return the model
         return this.model;
     }
+
     // generate the conv layers and add weights
     private convLayer(name: string, source: SymbolicTensor): SymbolicTensor {
         const weights = this.weights.get(`${name}.weight`);
@@ -201,7 +174,7 @@ export class UNet {
     destroy() {
         if (this.model) this.model.dispose();
         //dispose of the inputs
-        if (this.inputTensor) this.inputTensor.dispose();
+        if (this._inputTensor) this._inputTensor.dispose();
     }
 }
 

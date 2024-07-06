@@ -3,56 +3,25 @@ import * as tf from '@tensorflow/tfjs';
 // Assuming TensorMap is a Map where keys are string and values are tf.Tensor
 export type TensorMap = Map<string, tf.Tensor>;
 
-export async function loadTestTZA(filename = 'rt_ldr_alb_nrm_small.tza'): Promise<TensorMap> {
-    //console.log('file we are loading:', filename);
-    const tza = await loadDefaultTZAFile(filename);
-    //debugTZAFile(tza);
-    return parseTZA(tza);
-}
-
 // Load a TZA file
 export async function loadTZAFile(url: string): Promise<ArrayBuffer> {
     const response = await fetch(url);
-    if (!response.ok)
-        throw new Error(`Failed to load TZA file from ${url}`);
-    //console.log('File loaded:', url);
+    if (!response.ok) throw new Error(`Failed to load TZA file from ${url}`);
     return await response.arrayBuffer();
 }
 
 // load a TZA file from the default tzas in the library
 export async function loadDefaultTZAFile(fileName: string): Promise<ArrayBuffer> {
     const url = getTZAFilePath(fileName);
-    //console.log('Loading default file:', url)
     return loadTZAFile(url);
 }
+
 function getTZAFilePath(fileName: string): string {
     if (!fileName) throw new Error('No filename provided in path getting');
     // Assuming the library's package name is 'my-library' and files are in 'tza' folder
     const relativePath = `./tzas/${fileName}`;
     //console.log('relative path:', relativePath);
     return new URL(relativePath, import.meta.url).href;
-}
-
-export function debugTZAFile(buffer: ArrayBuffer): void {
-    const dataView = new DataView(buffer);
-    const magic = dataView.getUint16(0, true); // Assuming little-endian
-    const majorVersion = dataView.getUint8(2);
-    const minorVersion = dataView.getUint8(3);
-    // Use getBigUint64 for the table offset
-    const tableOffsetBigInt = dataView.getBigUint64(4, true); // Assuming little-endian
-    // Convert BigInt to number for the byteOffset parameter in DataView
-    const tableOffset = Number(tableOffsetBigInt);
-    if (tableOffset >= buffer.byteLength) {
-        console.error("Table offset is out of bounds.");
-        return;
-    }
-    const tableSizeDataView = new DataView(buffer, tableOffset);
-    const tableSize = tableSizeDataView.getUint32(0, true); // Assuming little-endian
-
-    console.log(`Magic Value: ${magic.toString(16)}`);
-    console.log(`Version: ${majorVersion}.${minorVersion}`);
-    console.log(`Table Offset: ${tableOffset}`);
-    console.log(`Table Size: ${tableSize}`);
 }
 
 export function parseTZA(buffer: ArrayBuffer): TensorMap {
@@ -68,17 +37,15 @@ export function parseTZA(buffer: ArrayBuffer): TensorMap {
     // Parse the magic value
     const magic = view.getUint16(offset, true);
     offset += 2;
-    if (magic !== 0x41D7) {
-        throw new Error('Invalid or corrupted weights blob');
-    }
+    if (magic !== 0x41D7) throw new Error('Invalid or corrupted weights blob');
+
     // Parse the version
     const majorVersion = view.getUint8(offset++);
     //const minorVersion = view.getUint8(offset++);
     // increment offset by 1 while ignoring the minor version
     offset++;
-    if (majorVersion !== 2) {
-        throw new Error('Unsupported weights blob version');
-    }
+    if (majorVersion !== 2) throw new Error('Unsupported weights blob version');
+
     // Parse the table offset and jump to the table
     const tableOffset = view.getBigUint64(offset, true);
     offset = Number(tableOffset);
@@ -117,13 +84,7 @@ export function parseTZA(buffer: ArrayBuffer): TensorMap {
         const tensorOffset = Number(view.getBigUint64(offset, true));
         offset += 8;
 
-        // Depending on the data type, create the tensor
-
-        //console.log('dataType', dataType)
-        //console.log('Creating tensor with dataType:', dataType);
-        //console.log('Expected shape:', shape);
         const numElements = shape.reduce((a, b) => a * b);
-        //console.log('Expected number of elements:', numElements);
 
         let slicedBuffer: Float32Array | Uint16Array;
         if (dataType === 'f') {
@@ -131,20 +92,19 @@ export function parseTZA(buffer: ArrayBuffer): TensorMap {
         } else if (dataType === 'h') {
             // Assuming conversion to Float32 is needed
             slicedBuffer = float16ToFloat32(buffer.slice(tensorOffset, tensorOffset + numElements * 2));
-        } else {
-            throw new Error('Invalid tensor data type');
-        }
+        } else throw new Error('Invalid tensor data type');
 
         //console.log('Sliced buffer length:', slicedBuffer.length);
-        if (slicedBuffer.length !== numElements) {
-            console.error('Mismatch between expected number of elements and sliced buffer length');
-            // Adjust calculations or handle error
-        }
+        if (slicedBuffer.length !== numElements)
+            throw new Error('Mismatch between expected number of elements and sliced buffer length');
 
-        let tensor = tf.tensor(slicedBuffer, shape);
-        // transpose the weight from )IHW to HWIO
-        if (shape.length === 4) tensor = tensor.transpose([2, 3, 1, 0]);
 
+        const tensor = tf.tidy(() => {
+            let out = tf.tensor(slicedBuffer, shape);
+            // transpose the weight from OIHW to HWIO
+            if (shape.length === 4) out = out.transpose([2, 3, 1, 0]);
+            return out;
+        });
         // Add the tensor to the map
         tensorMap.set(name, tensor);
     }
@@ -152,44 +112,35 @@ export function parseTZA(buffer: ArrayBuffer): TensorMap {
     return tensorMap;
 }
 
-// Util to convert float16 to float32
-/*
-function float16ToFloat32(inputArray: Uint16Array): Float32Array {
-    const output = new Float32Array(inputArray.length);
-    for (let i = 0; i < inputArray.length; i++) {
-        const value = inputArray[i];
+//* Debug Utils ----------------------------
+export async function loadTestTZA(filename = 'rt_ldr_alb_nrm_small.tza'): Promise<TensorMap> {
+    const tza = await loadDefaultTZAFile(filename);
+    return parseTZA(tza);
+}
 
-        // Extracting the binary components from 16-bit float
-        const sign = (value & 0x8000) >> 15;
-        const exponent = (value & 0x7C00) >> 10;
-        const fraction = value & 0x03FF;
-
-        if (exponent === 0) {
-            if (fraction === 0) {
-                // Zero
-                output[i] = sign === 0 ? 0.0 : -0.0;
-            } else {
-                // Subnormal numbers
-                const float32Exponent = 127 - 15 - 10; // Bias adjustment and shift
-                const float32Fraction = fraction / 1024;
-                output[i] = (sign === 0 ? 1 : -1) * float32Fraction * Math.pow(2, float32Exponent);
-            }
-        } else if (exponent === 0x1F) {
-            // Infinity or NaN
-            if (fraction === 0) {
-                output[i] = sign === 0 ? Infinity : -Infinity;
-            } else {
-                output[i] = NaN;
-            }
-        } else {
-            // Normalized numbers
-            const float32Exponent = exponent - 15 + 127; // Adjusting the exponent
-            const float32Fraction = fraction / 1024;
-            output[i] = (sign === 0 ? 1 : -1) * (1 + float32Fraction) * Math.pow(2, float32Exponent);
-        }
+export function debugTZAFile(buffer: ArrayBuffer): void {
+    const dataView = new DataView(buffer);
+    const magic = dataView.getUint16(0, true); // Assuming little-endian
+    const majorVersion = dataView.getUint8(2);
+    const minorVersion = dataView.getUint8(3);
+    // Use getBigUint64 for the table offset
+    const tableOffsetBigInt = dataView.getBigUint64(4, true); // Assuming little-endian
+    // Convert BigInt to number for the byteOffset parameter in DataView
+    const tableOffset = Number(tableOffsetBigInt);
+    if (tableOffset >= buffer.byteLength) {
+        console.error("Table offset is out of bounds.");
+        return;
     }
-    return output;
-}*/
+    const tableSizeDataView = new DataView(buffer, tableOffset);
+    const tableSize = tableSizeDataView.getUint32(0, true); // Assuming little-endian
+
+    console.log(`Magic Value: ${magic.toString(16)}`);
+    console.log(`Version: ${majorVersion}.${minorVersion}`);
+    console.log(`Table Offset: ${tableOffset}`);
+    console.log(`Table Size: ${tableSize}`);
+}
+
+//* Utils ----------------------------
 
 function float16ToFloat32(buffer: ArrayBuffer): Float32Array {
     const length = buffer.byteLength / 2; // Each Float16 takes 2 bytes
