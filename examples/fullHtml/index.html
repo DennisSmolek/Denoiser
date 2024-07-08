@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vite + React + TS</title>
+  <title>Full Denoiser Example</title>
   <style>
     body {
       margin: 10px;
@@ -14,8 +14,8 @@
       min-width: 320px;
       min-height: 100vh;
 
-      background: #b2ef91;
-      background: linear-gradient(90deg, #b2ef91 17%, #fa9372 86%);
+      background: #321ec6;
+      background: linear-gradient(90deg, #c61e5e 17%, #321ec6 50%, #72faad 86%);
     }
   </style>
 </head>
@@ -28,8 +28,15 @@
     <main>
       <div id="feature">
         <div id="sources">
-          <form action="/" id="dropzone" class="dropzone"></form>
-          <canvas id="preview" width="1280" height="720"></canvas>
+          <div class="imgWrap" id="noisey-wrap">
+            <img id="noisey" src="./noisey.jpg" />
+          </div>
+          <div class="imgWrap" id="albedo-wrap">
+            <img id="albedo" src="./albedo.jpg" />
+          </div>
+          <div class="imgWrap" id="normal-wrap">
+            <img id="normal" src="./normal.jpg" />
+          </div>
           <canvas id="output" width="1280" height="720"></canvas>
 
         </div>

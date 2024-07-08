@@ -1,21 +1,48 @@
 import { Denoiser } from "denoiser";
 import "./index.css";
+import { loadImageAndRender } from "./webGLDemo";
+
+//* WebGL ===========================================
+// get the canvas for output
+const outputCanvas = document.getElementById("output") as HTMLCanvasElement;
+const WEBGL_ATTRIBUTES = {
+	alpha: true,
+	antialias: false,
+	premultipliedAlpha: false,
+	preserveDrawingBuffer: false,
+	depth: false,
+	stencil: false,
+	failIfMajorPerformanceCaveat: true,
+	powerPreference: "low-power",
+};
+const context = outputCanvas.getContext(
+	"webgl2",
+	WEBGL_ATTRIBUTES,
+) as WebGL2RenderingContext;
+console.log("first draw");
+if (context) loadImageAndRender("./noisey.jpg", context);
 
 //* Denoising ===========================================
 
-const denoiser = new Denoiser();
-denoiser.debugging = true; // uncomment if you want detailed logs
-
-// get the canvas for output
-const outputCanvas = document.getElementById("output") as HTMLCanvasElement;
-denoiser.setCanvas(outputCanvas);
-// set the image to denoise
-//denoiser.setImage("color", noisey);
+setTimeout(() => {
+	const denoiser = new Denoiser("webgl", outputCanvas);
+	console.log("second draw");
+	if (context) loadImageAndRender("./noisey.jpg", context);
+	denoiser.debugging = true; // uncomment if you want detailed logs
+	setTimeout(() => {
+		console.log("third draw");
+		if (context) loadImageAndRender("./normal.jpg", context);
+	}, 5000);
+}, 5000);
+// Get the three inputs
+const noisey = document.getElementById("noisey") as HTMLImageElement;
+const albedo = document.getElementById("albedo") as HTMLImageElement;
+const normal = document.getElementById("normal") as HTMLImageElement;
 
 // function to denoise the image when clicked
 async function doDenoise() {
 	const startTime = performance.now();
-	await denoiser.execute();
+	await denoiser.execute(noisey, albedo, normal);
 	updateTimeDisplay(startTime);
 }
 

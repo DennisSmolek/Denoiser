@@ -86,7 +86,8 @@ main {
 #sources {
 
   width: 100%;
-  display: block;
+  display: flex;
+  flex-direction: row;
   position: relative;
   overflow: hidden;
   line-height: 0.9;
@@ -95,6 +96,43 @@ main {
 #sources.original #output {
  opacity: 0;
 }
+
+.imgWrap {
+  top: 0  ;
+  left: 0;
+  overflow: hidden;
+  width: 33%;
+}
+.imgWrap img {
+  display: block;
+  height: auto;
+  width: calc(100% * 3);
+}
+/* the normal wrap we'll leave positon default to space things correctly */
+#normal-wrap {
+  position: relative;
+  width: 33%;
+  max-width: 100%;
+
+}
+#noisey-wrap {
+  z-index: 10;
+  /*left: -33%; */
+  
+}
+#albedo-wrap {
+  z-index: 5;
+}
+
+#albedo {
+  margin-left: -100%;
+}
+#normal {
+  margin-left: -200%;
+}
+
+
+
 
 #output, #preview {
   position: absolute;

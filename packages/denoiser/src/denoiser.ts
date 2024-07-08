@@ -173,7 +173,10 @@ export class Denoiser {
                 tf.registerKernel(newKernelConfig);
             }
             const customBackend = new tf.MathBackendWebGL(canvasOrDevice as HTMLCanvasElement);
+            console.log('pre register backend')
+            await new Promise(resolve => setTimeout(resolve, 3000));
             tf.registerBackend('denoiser-webgl', () => customBackend);
+            console.log('backend registered')
         }
         await tf.setBackend('denoiser-webgl');
 
@@ -182,7 +185,7 @@ export class Denoiser {
         if (this.debugging) console.log('%c Denoiser: Backend set to custom webgl', 'background: orange; color: white;');
         this.usingCustomBackend = true;
         this.backendReady = true;
-        this.saveWebGLState();
+        //this.saveWebGLState();
 
         return this.backend;
     }
