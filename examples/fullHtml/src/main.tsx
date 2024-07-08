@@ -4,21 +4,10 @@ import "./index.css";
 //* Denoising ===========================================
 
 const denoiser = new Denoiser();
-// denoiser.debugging = true; // uncomment if you want detailed logs
+denoiser.debugging = true; // uncomment if you want detailed logs
 
-// Helper to know when the denoiser is ready, not needed
-denoiser.onBackendReady(() => {
-	console.log("Denoiser created!", denoiser);
-});
-
-//* Elements
-// Get the image for input
-const noisey = document.getElementById("noisey-img") as HTMLImageElement;
 // get the canvas for output
 const outputCanvas = document.getElementById("output") as HTMLCanvasElement;
-//---
-
-// set the canvas for quick denoising output
 denoiser.setCanvas(outputCanvas);
 // set the image to denoise
 //denoiser.setImage("color", noisey);
@@ -26,7 +15,7 @@ denoiser.setCanvas(outputCanvas);
 // function to denoise the image when clicked
 async function doDenoise() {
 	const startTime = performance.now();
-	await denoiser.execute(noisey);
+	await denoiser.execute();
 	updateTimeDisplay(startTime);
 }
 
@@ -69,4 +58,20 @@ function updateTimeDisplay(startTime: number) {
 	denoisedButton.disabled = false;
 	// show the stats
 	stats.style.display = "block";
+}
+
+//* toggle the quality
+// get the toggle input
+const qualityToggle = document.getElementById(
+	"quality-toggle",
+) as HTMLInputElement;
+qualityToggle.addEventListener("change", toggleQuality);
+
+// get the parent so we can add a class to it
+const qualityHolder = document.getElementById("quality") as HTMLDivElement;
+function toggleQuality() {
+	const quality = qualityToggle.checked ? "balanced" : "fast";
+	denoiser.quality = quality;
+	console.log("Quality set to", quality);
+	qualityHolder.className = quality;
 }

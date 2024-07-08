@@ -96,7 +96,7 @@ export class Denoiser {
 
     constructor(preferedBackend = 'webgpu', canvas?: HTMLCanvasElement) {
         this.weights = Weights.getInstance();
-        console.log('Denoiser initialized..');
+        console.log('%c Denoiser initialized..', 'background: #d66b00; color: white;');
         this.setupBackend(preferedBackend, canvas);
     }
 
@@ -139,7 +139,7 @@ export class Denoiser {
     async setupBackend(prefered = 'webgpu', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
         // do the easy part first
         if (!canvasOrDevice) {
-            console.log('Denoiser: No canvas provided, using default');
+            if (this.debugging) console.log('Denoiser: No canvas provided, using default');
             await tf.setBackend(prefered);
             const backendName = tf.getBackend();
             this.backend = tf.engine().findBackend(backendName)
@@ -179,7 +179,7 @@ export class Denoiser {
 
         //@ts-ignore
         this.gl = tf.engine().findBackend('denoiser-webgl').gpgpu.gl;
-        console.log('%c Denoiser: Backend set to custom webgl', 'background: orange; color: white;');
+        if (this.debugging) console.log('%c Denoiser: Backend set to custom webgl', 'background: orange; color: white;');
         this.usingCustomBackend = true;
         this.backendReady = true;
         this.saveWebGLState();
@@ -217,7 +217,7 @@ export class Denoiser {
         }
         // restore the webgl state
         this.gl.useProgram(this.webglProgram);
-        console.log('WebGL State Restored', this.webglProgram, this.gl, this.webglState);
+        if (this.debugging) console.log('WebGL State Restored', this.webglProgram, this.gl, this.webglState);
     }
 
     saveWebGLState() {
@@ -240,7 +240,7 @@ export class Denoiser {
             textureBinding: gl.getParameter(gl.TEXTURE_BINDING_2D),
         };
         this.webglState = state;
-        console.log('WebGL State Saved', this.webglProgram, this.gl);
+        if (this.debugging) console.log('WebGL State Saved', this.webglProgram, this.gl);
     }
 
     //* Build the unet using props ------------------------
@@ -265,7 +265,7 @@ export class Denoiser {
 
         if (this.debugging) {
             endTime = performance.now();
-            console.log('Denoiser: Build Time:', endTime - startTime!);
+            if (this.debugging) console.log('Denoiser: Build Time:', endTime - startTime!);
         }
         this.timesGenerated++;
         this.isDirty = false;
@@ -300,7 +300,6 @@ export class Denoiser {
     //* Execute the denoiser ------------------------------
     // execute with image data inputs
     async execute(colorInput?: ModelInput, albedoInput?: ModelInput, normalInput?: ModelInput) {
-        console.log('colorInput:', colorInput, 'albedoInput:', albedoInput, 'normalInput:', normalInput);
         if (colorInput || albedoInput || normalInput) switch (this.inputMode) {
             case 'webgl':
                 //todo: implement webgl input
@@ -353,7 +352,7 @@ export class Denoiser {
             //console.log('Output Tensor')
             //  output.print(); 
             endTime = performance.now();
-            console.log(`Denoiser: Execution Time: ${endTime - startTime!}ms`);
+            if (this.debugging) console.log(`Denoiser: Execution Time: ${endTime - startTime!}ms`);
         }
         return this.handleReturn(output);
     }
@@ -502,29 +501,38 @@ export class Denoiser {
     setImage(name: 'color' | 'albedo' | 'normal', imgData: ImgInput, flipY = false) {
         let finalData = imgData;
         // if input is color lets take the height and width and set it on this
-        if (name === 'color' && !this.height && !this.width) {
+        if (name === 'color') {
+            if (imgData instanceof HTMLImageElement && hasSizeMissmatch(imgData)) {
+                // check if the image is css scaled, if so correct the data
+                if (this.debugging) console.log('Image is css scaled, getting correct image data');
+                finalData = getCorrectImageData(imgData);
+            }
+            let inHeight = 0;
+            let inWidth = 0;
+
             // if the input is an html image use the natural height and width
             if (imgData instanceof HTMLImageElement) {
-                this.height = imgData.naturalHeight;
-                this.width = imgData.naturalWidth;
-                // check if the image is css scaled, if so correct the data
-                if (hasSizeMissmatch(imgData)) {
-                    console.log('Image is css scaled, getting correct image data');
-                    finalData = getCorrectImageData(imgData);
-                }
-
-
+                inHeight = imgData.naturalHeight;
+                inWidth = imgData.naturalWidth;
             } else if (imgData.height && imgData.width) {
-                this.height = imgData.height;
-                this.width = imgData.width;
+                inHeight = imgData.height;
+                inWidth = imgData.width;
             }
-            console.log('Setting height and width from image:', this.height, this.width);
+            if (inHeight || inWidth) {
+                if (inHeight && inHeight !== this.height) this.height = inHeight;
+                if (inWidth && inWidth !== this.width) this.width = inWidth;
+
+                if (this.debugging && (inHeight !== this.height || inWidth !== this.width)) {
+                    console.warn('Denoiser: Image size does not match denoiser size, resizing may occur.');
+                }
+            }
         }
+
 
         this.setInputTensor(name, tf.tidy(() => {
             let tensor: tf.Tensor3D;
             if (name === 'normal') {
-                tensor = this.createImageTensor(finalData, false);
+                tensor = this.createImageTensor(finalData, true);
             } else tensor = this.createImageTensor(finalData);
             if (!flipY) return tensor;
             return tf.reverse(tensor, [0]);
@@ -532,15 +540,12 @@ export class Denoiser {
     }
 
     // creates the image tensor
-    createImageTensor(input: ImgInput, normalize = true): tf.Tensor3D {
+    createImageTensor(input: ImgInput, isNormalMap = false): tf.Tensor3D {
         return tf.tidy(() => {
-            console.log('Image input');
-            console.dir(input);
             const imgTensor = tf.browser.fromPixels(input);
-            console.log('image tensor:', imgTensor.shape, imgTensor.dtype);
-            if (!normalize) return imgTensor as tf.Tensor3D;
-            // normalize the tensor
-            //const normalized = imgTensor.toFloat().div(tf.scalar(255));
+            // standard normalization
+            if (!isNormalMap) return imgTensor.toFloat().div(tf.scalar(255)) as tf.Tensor3D;
+
             // normalize the tensor to OIDN expect range of -1 to 1
             const normalized = imgTensor.toFloat().div(tf.scalar(127.5)).sub(tf.scalar(1));
             return normalized as tf.Tensor3D;

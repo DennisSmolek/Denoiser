@@ -14,8 +14,8 @@
       min-width: 320px;
       min-height: 100vh;
 
-      background: rgb(214, 107, 0);
-      background: linear-gradient(90deg, rgba(214, 107, 0, 1) 17%, rgba(223, 128, 128, 1) 86%);
+      background: #b2ef91;
+      background: linear-gradient(90deg, #b2ef91 17%, #fa9372 86%);
     }
   </style>
 </head>
@@ -28,7 +28,8 @@
     <main>
       <div id="feature">
         <div id="sources">
-          <img src="./noisey.jpg" id="noisey-img" />
+          <form action="/" id="dropzone" class="dropzone"></form>
+          <canvas id="preview" width="1280" height="720"></canvas>
           <canvas id="output" width="1280" height="720"></canvas>
 
         </div>
@@ -41,7 +42,15 @@
           <button id="original-button">Original</button>
           <button id="denoised-button" disabled>Denoised</button>
         </div>
-        <button id="execute-button">Denoise!</button>
+        <div id="quality" class="fast">
+          <span id="fast">Fast</span>
+          <label class="switch">
+            <input type="checkbox" id="quality-toggle">
+            <span class="slider round"></span>
+          </label>
+          <span id="balanced">Balanced</span>
+        </div>
+        <button id="execute-button" disabled>Denoise!</button>
       </div>
     </main>
     <footer>

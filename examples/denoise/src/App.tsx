@@ -17,7 +17,8 @@ function App() {
 		if (hasMounted.current) return;
 		hasMounted.current = true;
 		denoiser.current = new Denoiser();
-		//denoiser.current.debugging = true;
+		denoiser.current.debugging = true;
+		//	denoiser.current.usePassThrough = true;
 
 		// get the height and width of the noisey image
 	}, []);
@@ -44,45 +45,6 @@ function App() {
 				// build the model
 				dn.execute().then(() => {
 					console.log("Denoising complete");
-					console.log("second pass delay 15 seconds...");
-					setTimeout(() => {
-						// clear the canvas
-						console.log("clear");
-						const ctx = canvas.getContext("2d");
-						if (!ctx) return;
-						ctx.clearRect(0, 0, width, height);
-						//draw the canvas red to show it was cleared
-						ctx.fillStyle = "red";
-						ctx.fillRect(0, 0, width, height);
-						setTimeout(() => {
-							// set the canvas to green to show we are in a new draw phase
-							ctx.fillStyle = "green";
-							ctx.fillRect(0, 0, width, height);
-							dn.execute().then(() => {
-								console.log("Second Denoising complete");
-								// go for a third time
-								console.log("third pass delay 10 seconds...");
-								setTimeout(() => {
-									// clear the canvas
-									console.log("clear");
-									const ctx = canvas.getContext("2d");
-									if (!ctx) return;
-									ctx.clearRect(0, 0, width, height);
-									//draw the canvas red to show it was cleared
-									ctx.fillStyle = "red";
-									ctx.fillRect(0, 0, width, height);
-									setTimeout(() => {
-										// set the canvas to green to show we are in a new draw phase
-										ctx.fillStyle = "green";
-										ctx.fillRect(0, 0, width, height);
-										dn.execute().then(() => {
-											console.log("Third Denoising complete");
-										});
-									}, 5000);
-								}, 5000);
-							});
-						}, 5000);
-					}, 10000);
 				});
 			}, 5000);
 		};
