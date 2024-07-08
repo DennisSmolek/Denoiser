@@ -1,10 +1,12 @@
 {
-    "name": "OIDNFlow",
+    "name": "denoiser",
     "description": "OIDN Denoiser with tensorflow.js",
     "keywords": [
         "OIDN",
         "Denoise",
-        "tensorflow.js"
+        "tensorflow.js",
+        "denoiser",
+        "unet"
     ],
     "version": "0.0.1",
     "author": "Dennis Smolek",

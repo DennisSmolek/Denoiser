@@ -6,7 +6,7 @@ import { Weights } from './weights';
 import type { TensorMap } from './tza';
 import { UNet } from './unet';
 import { splitRGBA3D, concatenateAlpha3D } from './utils';
-import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
+import '@tensorflow/tfjs-backend-webgpu';
 
 type ImgInput = tf.PixelData | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | ImageBitmap;
 
@@ -31,7 +31,8 @@ export class Denoiser {
     timesGenerated = 0;
     // webGL context
     gl?: WebGL2RenderingContext;
-    backend?: tf.MathBackendWebGL | WebGPUBackend | tf.MathBackendCPU;
+    //backend?: tf.MathBackendWebGL | WebGPUBackend | tf.MathBackendCPU;
+    backend?: tf.KernelBackend
     backendLoaded = false;
     usingCustomBackend = false;
 
@@ -41,8 +42,8 @@ export class Denoiser {
         quality: 'fast',
         hdr: false,
         srgb: false,
-        height: 512,
-        width: 512,
+        height: 0,
+        width: 0,
         cleanAux: false,
         directionals: false,
         useColor: true,
@@ -71,7 +72,7 @@ export class Denoiser {
     // listeners for execution callbacks
     private listeners: Map<ListenerCalback, string> = new Map();
     // This holds listeners for when we save/restore state
-    private listenersRemaining = 0;
+    //private listenersRemaining = 0;
 
     // probably going to remove this
     private backendListeners: Set<ListenerCalback> = new Set();
@@ -91,7 +92,7 @@ export class Denoiser {
     // holder for weights instance where we get tensorMaps
     private weights: Weights;
     private activeTensorMap!: TensorMap;
-    private isDirty = false;
+    private isDirty = true;
 
     constructor(preferedBackend = 'webgpu', canvas?: HTMLCanvasElement) {
         this.weights = Weights.getInstance();
@@ -135,42 +136,49 @@ export class Denoiser {
 
     // Take in potential contexts and set the backend
     //todo: should this be private?
-    async setupBackend(prefered = 'webgpu', canvas?: HTMLCanvasElement) {
+    async setupBackend(prefered = 'webgpu', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
         // do the easy part first
-        if (!canvas) {
+        if (!canvasOrDevice) {
+            console.log('Denoiser: No canvas provided, using default');
             await tf.setBackend(prefered);
-            //@ts-ignore
-            this.backend = tf.getBackend();
+            const backendName = tf.getBackend();
+            this.backend = tf.engine().findBackend(backendName)
             // if webgl set the gl context
-            this.gl = tf.getBackend() === 'webgl' ? tf.engine().findBackend('webgl').gpgpu.gl : undefined;
-            console.log(`Denoiser: Backend set to ${prefered}`);
+            //@ts-ignore
+            this.gl = backendName === 'webgl' ? this.backend.gpgpu.gl : undefined;
+            if (this.debugging) console.log(`Denoiser: Backend set to ${prefered}`);
 
             this.backendReady = true;
             return this.backend;
         }
 
-        if (prefered === 'webGPU')
-            throw new Error('We havent setup custom webGPU Contexts yet');
-
-        if (prefered !== 'webgl')
+        // We dont want to run mess with weird context for WASM or CPU backends
+        if (prefered !== 'webgl' && prefered !== 'webgpu')
             throw new Error('Only webgl and webgpu are supported with custom contexts');
+
+        let kernels: tf.KernelConfig[];
+        //* Setup a webGPU backend with a custom device
+        if (prefered === 'webgpu') {
+
+        }
+
         //* Setup a webGL backend with a custom context
         // if multiple denoisers exist they can share contexts
         // register the backend if it doesn't exist
-        if (tf.findBackend('oidnflow-webgl') === null) {
+        if (tf.findBackend('denoiser-webgl') === null) {
             // we have to make sure all the kernels are registered
-            const kernels = tf.getKernelsForBackend('webgl');
+            kernels = tf.getKernelsForBackend('webgl');
             for (const kernelConfig of kernels) {
                 const newKernelConfig = { ...kernelConfig, backendName: 'oidnflow-webgl' };
                 tf.registerKernel(newKernelConfig);
             }
-            const customBackend = new tf.MathBackendWebGL(canvas);
-            tf.registerBackend('oidnflow-webgl', () => customBackend);
+            const customBackend = new tf.MathBackendWebGL(canvasOrDevice as HTMLCanvasElement);
+            tf.registerBackend('denoiser-webgl', () => customBackend);
         }
-        await tf.setBackend('oidnflow-webgl');
+        await tf.setBackend('denoiser-webgl');
 
         //@ts-ignore
-        this.gl = tf.engine().findBackend('oidnflow-webgl').gpgpu.gl;
+        this.gl = tf.engine().findBackend('denoiser-webgl').gpgpu.gl;
         console.log('%c Denoiser: Backend set to custom webgl', 'background: orange; color: white;');
         this.usingCustomBackend = true;
         this.backendReady = true;
@@ -189,6 +197,7 @@ export class Denoiser {
             gl.useProgram(state.program);
             gl.bindRenderbuffer(gl.RENDERBUFFER, state.renderbufferBinding);
             gl.bindFramebuffer(gl.FRAMEBUFFER, state.framebufferBinding);
+            //@ts-ignore
             gl.viewport(...state.viewport);
 
             if (state.scissorTest) gl.enable(gl.SCISSOR_TEST);
@@ -291,6 +300,7 @@ export class Denoiser {
     //* Execute the denoiser ------------------------------
     // execute with image data inputs
     async execute(colorInput?: ModelInput, albedoInput?: ModelInput, normalInput?: ModelInput) {
+        console.log('colorInput:', colorInput, 'albedoInput:', albedoInput, 'normalInput:', normalInput);
         if (colorInput || albedoInput || normalInput) switch (this.inputMode) {
             case 'webgl':
                 //todo: implement webgl input
@@ -386,6 +396,7 @@ export class Denoiser {
             // output = tf.reverse(output, [0]);
             // check the datatype and shape of the outputImage
             // if (this.debugging) console.log('Output Image shape:', output.shape, 'dtype:', output.dtype);
+            if (this.inputAlpha) output = concatenateAlpha3D(output, this.inputAlpha);
             return output;
         });
         // if there is an old output tensor dispose of it
@@ -431,12 +442,8 @@ export class Denoiser {
                 toReturn = data.buffer;
                 break;
             case 'float32': {
-
-                const tensorFetchStart = performance.now();
                 const float32Data = outputTensor.dataSync() as Float32Array;
-                if (this.debugging) console.log(`Denoiser: Float32 tensor.data duration: ${performance.now() - tensorFetchStart}ms`)
-                toReturn = addAlphaChannel(float32Data, outputTensor.shape[0] * outputTensor.shape[1], this.inputAlpha);
-                if (this.debugging) console.log(`Denoiser: Float32 Conversion duration: ${performance.now() - tensorFetchStart}ms`);
+                toReturn = float32Data;
                 break;
             }
             default: {
@@ -493,11 +500,32 @@ export class Denoiser {
     //* Image Input ---
     //set the image and tensor, normalize (potentailly) flipY if needed
     setImage(name: 'color' | 'albedo' | 'normal', imgData: ImgInput, flipY = false) {
+        let finalData = imgData;
+        // if input is color lets take the height and width and set it on this
+        if (name === 'color' && !this.height && !this.width) {
+            // if the input is an html image use the natural height and width
+            if (imgData instanceof HTMLImageElement) {
+                this.height = imgData.naturalHeight;
+                this.width = imgData.naturalWidth;
+                // check if the image is css scaled, if so correct the data
+                if (hasSizeMissmatch(imgData)) {
+                    console.log('Image is css scaled, getting correct image data');
+                    finalData = getCorrectImageData(imgData);
+                }
+
+
+            } else if (imgData.height && imgData.width) {
+                this.height = imgData.height;
+                this.width = imgData.width;
+            }
+            console.log('Setting height and width from image:', this.height, this.width);
+        }
+
         this.setInputTensor(name, tf.tidy(() => {
             let tensor: tf.Tensor3D;
             if (name === 'normal') {
-                tensor = this.createImageTensor(imgData, false);
-            } else tensor = this.createImageTensor(imgData);
+                tensor = this.createImageTensor(finalData, false);
+            } else tensor = this.createImageTensor(finalData);
             if (!flipY) return tensor;
             return tf.reverse(tensor, [0]);
         }));
@@ -506,7 +534,10 @@ export class Denoiser {
     // creates the image tensor
     createImageTensor(input: ImgInput, normalize = true): tf.Tensor3D {
         return tf.tidy(() => {
+            console.log('Image input');
+            console.dir(input);
             const imgTensor = tf.browser.fromPixels(input);
+            console.log('image tensor:', imgTensor.shape, imgTensor.dtype);
             if (!normalize) return imgTensor as tf.Tensor3D;
             // normalize the tensor
             //const normalized = imgTensor.toFloat().div(tf.scalar(255));
@@ -529,13 +560,34 @@ export class Denoiser {
     }
 
     onBackendReady(listener: ListenerCalback) {
-        console.log('Backend listener added')
-        this.backendListeners.add(listener);
+        // if the backend is already ready fire the listener
+        if (this.backendReady) listener(this.backend);
+        else this.backendListeners.add(listener);
         return () => this.backendListeners.delete(listener);
     }
 }
 
 //* Utils ----------------------------------------------
+
+// take a css scaled image and use a canvas to get the actual size
+function getCorrectImageData(img: HTMLImageElement) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not get canvas context');
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    ctx.drawImage(img, 0, 0);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+// check if the height/width dont math
+function hasSizeMissmatch(img: HTMLImageElement) {
+    if (!img.naturalHeight || !img.naturalWidth) return true;
+    return img.height !== img.naturalHeight || img.width !== img.naturalWidth;
+}
+
+
+/*
 // get the alpha channel from a float32 array
 function getAlphaChannel(imageData: Float32Array, count: number): Float32Array {
     const alphaData = new Float32Array(count);
@@ -583,3 +635,4 @@ function addAlphaChannel(imageData: Float32Array, itemCount: number, alphaData?:
 
     return output;
 }
+    */

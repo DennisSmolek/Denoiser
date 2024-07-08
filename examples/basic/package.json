@@ -1,5 +1,5 @@
 {
-  "name": "oidnFlow-Pathtracer",
+  "name": "denoiser-example-basic",
   "private": true,
   "version": "0.0.0",
   "type": "module",

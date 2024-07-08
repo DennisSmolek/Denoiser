@@ -6,7 +6,7 @@ import { useControls, button } from "leva";
 import * as THREE from "three";
 import "./App.css";
 // for base testing import oidn
-import { Denoiser } from "OIDNFlow";
+import { Denoiser } from "denoiser";
 import { useFrame } from "@react-three/fiber";
 import { OrbitControls, useFBO } from "@react-three/drei";
 

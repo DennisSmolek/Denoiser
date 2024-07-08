@@ -3,7 +3,7 @@ import reactLogo from "./assets/react.svg";
 import viteLogo from "/vite.svg";
 import "./App.css";
 // for base testing import oidn
-import { Denoiser } from "OIDNFlow";
+import { Denoiser } from "denoiser";
 
 function App() {
 	const [count, setCount] = useState(0);
