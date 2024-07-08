@@ -10,7 +10,13 @@ export function splitRGBA3D(inputTensor: tf.Tensor3D, disposeInputs = true): { r
 }
 
 // Function to concatenate the alpha channel back to the RGB tensor for Tensor3D
-export function concatenateAlpha3D(rgbTensor: tf.Tensor3D, alphaTensor: tf.Tensor3D, disposeInputs = false): tf.Tensor3D {
+export function concatenateAlpha3D(rgbTensor: tf.Tensor3D, alphaTensor?: tf.Tensor3D, disposeInputs = false): tf.Tensor3D {
+    //if there in no alpha tensor, create one with all 1s
+    if (!alphaTensor) {
+        alphaTensor = tf.ones(rgbTensor.shape.slice(0, 2).concat([1]) as [number, number, number], 'float32');
+    }
+
+
     const concatenatedTensor = tf.concat([rgbTensor, alphaTensor], -1); // Concatenate along the channel dimension
     if (disposeInputs) {
         rgbTensor.dispose();

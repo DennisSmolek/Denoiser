@@ -3198,9 +3198,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"denoiser-example-full@workspace:examples/fullHtml":
+"denoiser-example-full@workspace:examples/webgl-basic":
   version: 0.0.0-use.local
-  resolution: "denoiser-example-full@workspace:examples/fullHtml"
+  resolution: "denoiser-example-full@workspace:examples/webgl-basic"
   dependencies:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
@@ -3222,6 +3222,21 @@ __metadata:
     "@typescript-eslint/parser": "npm:^7.13.1"
     "@vitejs/plugin-react": "npm:^4.3.1"
     dropzone: "npm:^6.0.0-beta.2"
+    eslint: "npm:^8.57.0"
+    eslint-plugin-react-hooks: "npm:^4.6.2"
+    eslint-plugin-react-refresh: "npm:^0.4.7"
+    typescript: "npm:^5.2.2"
+    vite: "npm:^5.3.1"
+  languageName: unknown
+  linkType: soft
+
+"denoiser-example-webgpu-basic@workspace:examples/webgpu-basic":
+  version: 0.0.0-use.local
+  resolution: "denoiser-example-webgpu-basic@workspace:examples/webgpu-basic"
+  dependencies:
+    "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
+    "@typescript-eslint/parser": "npm:^7.13.1"
+    "@vitejs/plugin-react": "npm:^4.3.1"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
     eslint-plugin-react-refresh: "npm:^0.4.7"

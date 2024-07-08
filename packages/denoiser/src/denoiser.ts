@@ -7,6 +7,7 @@ import type { TensorMap } from './tza';
 import { UNet } from './unet';
 import { splitRGBA3D, concatenateAlpha3D } from './utils';
 import '@tensorflow/tfjs-backend-webgpu';
+import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
 
 type ImgInput = tf.PixelData | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | ImageBitmap;
 
@@ -29,8 +30,8 @@ type DenoiserProps = {
 export class Denoiser {
     // counter to how many times the model was built
     timesGenerated = 0;
-    // webGL context
     gl?: WebGL2RenderingContext;
+    device?: GPUDevice;
     //backend?: tf.MathBackendWebGL | WebGPUBackend | tf.MathBackendCPU;
     backend?: tf.KernelBackend
     backendLoaded = false;
@@ -94,10 +95,10 @@ export class Denoiser {
     private activeTensorMap!: TensorMap;
     private isDirty = true;
 
-    constructor(preferedBackend = 'webgpu', canvas?: HTMLCanvasElement) {
+    constructor(preferedBackend = 'webgpu', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
         this.weights = Weights.getInstance();
         console.log('%c Denoiser initialized..', 'background: #d66b00; color: white;');
-        this.setupBackend(preferedBackend, canvas);
+        this.setupBackend(preferedBackend, canvasOrDevice);
     }
 
     //* Getters and Setters ------------------------------
@@ -159,7 +160,22 @@ export class Denoiser {
         let kernels: tf.KernelConfig[];
         //* Setup a webGPU backend with a custom device
         if (prefered === 'webgpu') {
+            this.device = canvasOrDevice as GPUDevice;
+            kernels = tf.getKernelsForBackend('webgpu');
+            kernels.forEach(kernelConfig => {
+                const newKernelConfig = { ...kernelConfig, backendName: 'denoiser-webgpu' };
+                tf.registerKernel(newKernelConfig);
+            });
+            tf.registerBackend('denoiser-webgpu', async () => {
+                return new WebGPUBackend(this.device!);
+            });
+            await tf.setBackend('denoiser-webgpu');
+            console.log('%c Denoiser: Backend set to custom WebGPU', 'background: teal; color: white;');
+            this.usingCustomBackend = true;
+            this.backendReady = true;
 
+
+            return this.backend;
         }
 
         //* Setup a webGL backend with a custom context
@@ -182,7 +198,7 @@ export class Denoiser {
 
         //@ts-ignore
         this.gl = tf.engine().findBackend('denoiser-webgl').gpgpu.gl;
-        if (this.debugging) console.log('%c Denoiser: Backend set to custom webgl', 'background: orange; color: white;');
+        console.log('%c Denoiser: Backend set to custom webgl', 'background: orange; color: white;');
         this.usingCustomBackend = true;
         this.backendReady = true;
         //this.saveWebGLState();
@@ -439,7 +455,10 @@ export class Denoiser {
                 toReturn = data.texture;
                 break;
             case 'webgpu':
-                data = outputTensor.dataToGPU();
+                // webGPU MUST have the alpha channel
+                // if we didn't add it back (because of data input) we need to now with blanks
+                if (!this.inputAlpha) data = concatenateAlpha3D(outputTensor).dataToGPU();
+                else data = outputTensor.dataToGPU();
                 if (!data.buffer) throw new Error('Denoiser: Could not convert to webGPU buffer');
                 toReturn = data.buffer;
                 break;

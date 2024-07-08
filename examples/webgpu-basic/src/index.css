@@ -1,0 +1,338 @@
+html, body {
+  box-sizing: border-box;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+}
+
+a {
+  font-weight: 500;
+  color: #ffcaa1;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #414aee;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 5px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+#root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(26, 14, 14, 0.87);
+
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0 auto;
+  max-width: 1440px;
+  box-sizing: border-box;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  margin: 3vh 0;
+  flex-grow: 0;
+  flex-shrink: 0;
+}
+
+main {
+  flex-grow: 1;
+}
+
+#feature {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2em;
+  text-align: center;
+  background-color: #f9f9f9;
+  box-shadow: 0px 7px 15px rgba(100, 0, 0, 1.1);
+  max-width: 800px;
+  margin: 0 auto;
+  position: relative;
+
+}
+
+#sources {
+
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  position: relative;
+  overflow: hidden;
+  line-height: 0.9;
+}
+
+#sources.original #output {
+ opacity: 0;
+}
+
+.imgWrap {
+  top: 0  ;
+  left: 0;
+  overflow: hidden;
+  width: 33%;
+}
+.imgWrap img {
+  display: block;
+  height: auto;
+  width: calc(100% * 3);
+}
+/* the normal wrap we'll leave positon default to space things correctly */
+#normal-wrap {
+  position: relative;
+  width: 33%;
+  max-width: 100%;
+
+}
+#noisey-wrap {
+  z-index: 10;
+  /*left: -33%; */
+  
+}
+#albedo-wrap {
+  z-index: 5;
+}
+
+#albedo {
+  margin-left: -100%;
+}
+#normal {
+  margin-left: -200%;
+}
+
+
+
+
+#output, #preview {
+  position: absolute;
+  left: 0;
+  max-width: 100%;
+  width: 100%;
+  top: 0;
+  z-index: 22;
+}
+#preview {
+  
+  position: relative;
+}
+#dropzone {
+  position: absolute;
+  z-index: 100;
+  width: 100%;
+  height: 100%;
+  line-height: 0.9;
+}
+.dropzone .dz-preview {
+  display: none !important;
+}
+
+#selectors {
+  position: absolute;
+  top: 30px;
+  left: -10px;
+  transform: scale(0.5);
+  z-index: 200;
+}
+#quality {
+  position: absolute;
+  left: 32px;
+  bottom: 4px;
+}
+
+#quality.fast #balanced {
+  opacity: 0.5;
+}
+#quality.balanced #fast {
+  opacity: 0.5;
+}
+
+#stats {
+  position: absolute;
+  right: 33px;
+  bottom: -10px;
+}
+
+#execute-button {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -23px;
+  margin: auto;
+  max-width: 200px;
+}
+
+footer {
+  
+  width: 100%;
+  text-align: center;
+  padding: 10px;
+  color: #7e0000;
+  flex-grow: 0;
+  flex-shrink: 0;
+}
+
+footer p {
+  margin: 5px;
+}
+
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+#logo-img {
+  max-width: 1280px;
+  width: 100%;
+  height: auto;
+  margin: auto;
+  display: block;
+  animation: shrinkLogo 1s forwards; /* Added 'forwards' value */
+}
+
+@keyframes shrinkLogo {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 500px;
+  }
+}
+
+
+/* Github Corner */
+.github-corner:hover .octo-arm {
+  animation: octocat-wave 560ms ease-in-out
+}
+
+@keyframes octocat-wave {
+
+  0%,
+  100% {
+    transform: rotate(0)
+  }
+
+  20%,
+  60% {
+    transform: rotate(-25deg)
+  }
+
+  40%,
+  80% {
+    transform: rotate(10deg)
+  }
+}
+
+@media (max-width:500px) {
+  .github-corner:hover .octo-arm {
+    animation: none
+  }
+
+  .github-corner .octo-arm {
+    animation: octocat-wave 560ms ease-in-out
+  }
+}
+
+
+/* Toggle Switch */
+/* The switch - the box around the slider */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+  top: 3px;
+}
+
+/* Hide default HTML checkbox */
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+/* The slider */
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 4px;
+  bottom: 2px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: #2196F3;
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px #2196F3;
+}
+
+input:checked + .slider:before {
+  -webkit-transform: translateX(17px);
+  -ms-transform: translateX(17px);
+  transform: translateX(17px);
+}
+
+/* Rounded sliders */
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
