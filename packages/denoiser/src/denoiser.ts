@@ -389,18 +389,19 @@ export class Denoiser {
         //if (!color && !albedo && !normal) throw new Error('Denoiser must have an input set before execution.');
         if (!color) throw new Error('Denoiser must have an input set before execution.');
 
-        // Concatenate images along the channel dimension
-        // if the concatenated image is not the same as the color image dispose of it
-        //todo: this can all probably be wrapped in a tf.tidy
-        if (albedo || normal && this.concatenatedImage !== color) this.concatenatedImage.dispose();
-        if (albedo) {
-            if (normal) this.concatenatedImage = tf.concat([color, albedo, normal], -1);
-            else this.concatenatedImage = tf.concat([color, albedo], -1);
-        } else if (normal) {
-            this.concatenatedImage = tf.concat([color, normal], -1);
-        } else this.concatenatedImage = color;
-        // Reshape for batch size
-        return this.concatenatedImage.expandDims(0) as Tensor4D; // Now shape is [1, height, width, 9]
+        return tf.tidy(() => {
+            let concatenatedImage: tf.Tensor3D;
+            if (albedo) {
+                if (normal) concatenatedImage = tf.concat([color, albedo, normal], -1);
+                else concatenatedImage = tf.concat([color, albedo], -1);
+            } else if (normal) {
+                concatenatedImage = tf.concat([color, normal], -1);
+            } else {
+                concatenatedImage = color;
+            }
+            // Reshape for batch size
+            return concatenatedImage.expandDims(0) as Tensor4D; // Now shape is [1, height, width, 9]
+        });
     }
 
     // Take the model output and ready it to be returned
@@ -523,12 +524,13 @@ export class Denoiser {
     setImage(name: 'color' | 'albedo' | 'normal', imgData: ImgInput, flipY = false) {
         let finalData = imgData;
         // if input is color lets take the height and width and set it on this
+        if (imgData instanceof HTMLImageElement && hasSizeMissmatch(imgData)) {
+            // check if the image is css scaled, if so correct the data
+            if (this.debugging) console.log('Image is css scaled, getting correct image data');
+            finalData = getCorrectImageData(imgData);
+        }
         if (name === 'color') {
-            if (imgData instanceof HTMLImageElement && hasSizeMissmatch(imgData)) {
-                // check if the image is css scaled, if so correct the data
-                if (this.debugging) console.log('Image is css scaled, getting correct image data');
-                finalData = getCorrectImageData(imgData);
-            }
+
             let inHeight = 0;
             let inWidth = 0;
 
@@ -548,7 +550,8 @@ export class Denoiser {
                     console.warn('Denoiser: Image size does not match denoiser size, resizing may occur.');
                 }
             }
-        }
+        } else if (name === 'albedo') this.props.useAlbedo = true;
+        else if (name === 'normal') this.props.useNormal = true;
 
 
         this.setInputTensor(name, tf.tidy(() => {

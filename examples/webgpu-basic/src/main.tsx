@@ -5,6 +5,8 @@ import { WebGPURenderer } from "./webGPUDemo";
 //* WebGPU ===========================================
 // get the canvas for output
 const outputCanvas = document.getElementById("output") as HTMLCanvasElement;
+const rawOutputCanvas = document.getElementById("rawOutput") as HTMLCanvasElement;
+
 let denoiser: Denoiser;
 // create the renderer
 const renderer = new WebGPURenderer(outputCanvas);
@@ -12,7 +14,11 @@ renderer.onReady(() => {
 	console.log("Renderer is ready");
 	renderer.renderTestImage();
 	denoiser = new Denoiser('webgpu', renderer.device);
+	//denoiser = new Denoiser('webgl');
+
 	denoiser.onBackendReady(() => setupDenoising());
+	denoiser.setCanvas(rawOutputCanvas);
+	denoiser.debugging = true; // uncomment if you want detailed logs
 });
 
 
@@ -36,7 +42,7 @@ function setupDenoising() {
 	// add an execution listener
 	denoiser.onExecute(outputBuffer => {
 		console.log('Output buffer', outputBuffer);
-		renderer.renderBuffer(outputBuffer);
+		//renderer.renderBuffer(outputBuffer);
 	},'webgpu');
 }
 
@@ -44,7 +50,8 @@ function setupDenoising() {
 async function doDenoise() {
 	const startTime = performance.now();
 //	await denoiser.execute(noisey, albedo, normal);
-await denoiser.execute(noisey);
+await denoiser.execute(noisey, albedo);
+//await denoiser.execute(noisey);
 
 updateTimeDisplay(startTime);
 }
@@ -52,6 +59,8 @@ updateTimeDisplay(startTime);
 //* add a click litener to the button
 const button = document.getElementById("execute-button") as HTMLButtonElement;
 button.addEventListener("click", doDenoise);
+
+
 
 //* Utilities for the Demo ------------------------------
 
