@@ -25,8 +25,8 @@ renderer.onReady(() => {
 });
 // tiling test
 setTimeout(() => {
-	console.log("TEST RUNNING");
-	denoiser.runTest();
+	//console.log("TEST RUNNING");
+	//denoiser.runTest();
 }, 10000);
 
 //* Denoising ===========================================

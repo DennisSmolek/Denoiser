@@ -295,8 +295,8 @@ export class Denoiser {
 
         //* Tiling
         if (this.useTiling) {
-            this.tiler = new GPUTensorTiler(model, [this.tileSize, this.tileSize], [1, this.props.height, this.props.width, channels], this.tileStride);
-            console.log(`Tiler Created, Tile Size: [${this.tileSize}, ${this.tileSize}], Stride: ${this.tileStride}, Height: ${this.props.height}, Width: ${this.props.width}, Channels: ${channels}`);
+            this.tiler = new GPUTensorTiler(model, this.tileSize || 256)
+            console.log(`Tiler Created`);
         }
 
         if (this.debugging) {
