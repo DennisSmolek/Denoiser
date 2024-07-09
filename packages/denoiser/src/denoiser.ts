@@ -6,6 +6,8 @@ import { Weights } from './weights';
 import type { TensorMap } from './tza';
 import { UNet } from './unet';
 import { splitRGBA3D, concatenateAlpha3D } from './utils';
+import { testTiling } from './improvedTileHandling';
+
 import '@tensorflow/tfjs-backend-webgpu';
 import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
 
@@ -55,9 +57,6 @@ export class Denoiser {
     // this allows us to bypass everything and pass a tensor directly to the model
     directInputTensor?: tf.Tensor3D;
 
-    // configurable options that require rebuilding the model
-    activeBackend: 'cpu' | 'webgl' | 'wasm' | 'webgpu' = 'webgpu';
-
     // how we want input and output to be handled
     inputMode: 'imgData' | 'webgl' | 'webgpu' | 'tensor' = 'imgData';
     outputMode: 'imgData' | 'webgl' | 'webgpu' | 'tensor' | 'float32' = 'imgData';
@@ -82,9 +81,6 @@ export class Denoiser {
     private inputTensors: Map<'color' | 'albedo' | 'normal', tf.Tensor3D> = new Map();
     private inputAlpha?: tf.Tensor3D;
     private oldOutputTensor?: tf.Tensor3D;
-
-    //todo remove?
-    private concatenatedImage!: tf.Tensor3D;
 
     // WebGL ---
     private webglProgram?: WebGLProgram;
@@ -131,6 +127,11 @@ export class Denoiser {
         if (isReady) this.backendListeners.forEach((callback) => {
             callback(this.backend);
         });
+    }
+
+    //* Debug test
+    runTest() {
+        testTiling();
     }
 
     //* Backend and Context ------------------------------

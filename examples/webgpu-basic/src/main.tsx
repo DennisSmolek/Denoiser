@@ -5,7 +5,9 @@ import { WebGPURenderer } from "./webGPUDemo";
 //* WebGPU ===========================================
 // get the canvas for output
 const outputCanvas = document.getElementById("output") as HTMLCanvasElement;
-const rawOutputCanvas = document.getElementById("rawOutput") as HTMLCanvasElement;
+const rawOutputCanvas = document.getElementById(
+	"rawOutput",
+) as HTMLCanvasElement;
 
 let denoiser: Denoiser;
 // create the renderer
@@ -13,14 +15,18 @@ const renderer = new WebGPURenderer(outputCanvas);
 renderer.onReady(() => {
 	console.log("Renderer is ready");
 	renderer.renderTestImage();
-	denoiser = new Denoiser('webgpu', renderer.device);
+	denoiser = new Denoiser("webgpu", renderer.device);
 	//denoiser = new Denoiser('webgl');
 
 	denoiser.onBackendReady(() => setupDenoising());
 	denoiser.setCanvas(rawOutputCanvas);
 	denoiser.debugging = true; // uncomment if you want detailed logs
 });
-
+// tiling test
+setTimeout(() => {
+	console.log("TEST RUNNING");
+	denoiser.runTest();
+}, 10000);
 
 //* Denoising ===========================================
 
@@ -32,35 +38,31 @@ const noisey = document.getElementById("noisey") as HTMLImageElement;
 const albedo = document.getElementById("albedo") as HTMLImageElement;
 const normal = document.getElementById("normal") as HTMLImageElement;
 
-
-
 // because we have to wait a little longer for the webGPU backend lets make a handy function
 function setupDenoising() {
 	// activate the button
 	button.disabled = false;
 
 	// add an execution listener
-	denoiser.onExecute(outputBuffer => {
-		console.log('Output buffer', outputBuffer);
+	denoiser.onExecute((outputBuffer) => {
+		console.log("Output buffer", outputBuffer);
 		//renderer.renderBuffer(outputBuffer);
-	},'webgpu');
+	}, "webgpu");
 }
 
 // function to denoise the image when clicked
 async function doDenoise() {
 	const startTime = performance.now();
-//	await denoiser.execute(noisey, albedo, normal);
-await denoiser.execute(noisey, albedo);
-//await denoiser.execute(noisey);
+	//	await denoiser.execute(noisey, albedo, normal);
+	await denoiser.execute(noisey, albedo);
+	//await denoiser.execute(noisey);
 
-updateTimeDisplay(startTime);
+	updateTimeDisplay(startTime);
 }
 
 //* add a click litener to the button
 const button = document.getElementById("execute-button") as HTMLButtonElement;
 button.addEventListener("click", doDenoise);
-
-
 
 //* Utilities for the Demo ------------------------------
 
