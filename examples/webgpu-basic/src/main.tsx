@@ -2,38 +2,23 @@ import { Denoiser } from "denoiser";
 import "./index.css";
 import { WebGPURenderer } from "./webGPUDemo";
 
+let denoiser: Denoiser;
+
 //* WebGPU ===========================================
 // get the canvas for output
 const outputCanvas = document.getElementById("output") as HTMLCanvasElement;
-const rawOutputCanvas = document.getElementById(
-	"rawOutput",
-) as HTMLCanvasElement;
-
-let denoiser: Denoiser;
+// const rawOutputCanvas = document.getElementById("rawOutput") as HTMLCanvasElement;
 // create the renderer
 const renderer = new WebGPURenderer(outputCanvas);
 renderer.onReady(() => {
 	console.log("Renderer is ready");
-	renderer.renderTestImage();
+	//renderer.renderTestImage();
 	denoiser = new Denoiser("webgpu", renderer.device);
-	//denoiser = new Denoiser('webgl');
-	denoiser.useTiling = true;
-
 	denoiser.onBackendReady(() => setupDenoising());
-	denoiser.setCanvas(rawOutputCanvas);
-	denoiser.debugging = true; // uncomment if you want detailed logs
+	//denoiser.setCanvas(rawOutputCanvas);
 });
-// tiling test
-setTimeout(() => {
-	//console.log("TEST RUNNING");
-	//denoiser.runTest();
-}, 10000);
 
 //* Denoising ===========================================
-
-//const denoiser = new Denoiser();
-//denoiser.debugging = true; // uncomment if you want detailed logs
-
 // Get the three inputs
 const noisey = document.getElementById("noisey") as HTMLImageElement;
 const albedo = document.getElementById("albedo") as HTMLImageElement;
@@ -41,21 +26,28 @@ const normal = document.getElementById("normal") as HTMLImageElement;
 
 // because we have to wait a little longer for the webGPU backend lets make a handy function
 function setupDenoising() {
+	denoiser.debugging = true; // uncomment if you want detailed logs
+	// use tiling with webGPU and larger images. (May become standard)
+	denoiser.useTiling = true;
 	// activate the button
 	button.disabled = false;
 
 	// add an execution listener
 	denoiser.onExecute((outputBuffer) => {
 		console.log("Output buffer", outputBuffer);
-		//renderer.renderBuffer(outputBuffer);
+		renderer.renderBuffer(outputBuffer);
+
+		// this tells the system we want a webGPU buffer
 	}, "webgpu");
 }
 
 // function to denoise the image when clicked
 async function doDenoise() {
 	const startTime = performance.now();
-	//	await denoiser.execute(noisey, albedo, normal);
-	await denoiser.execute(noisey, albedo);
+
+	// different levels of execution
+	await denoiser.execute(noisey, albedo, normal);
+	//await denoiser.execute(noisey, albedo);
 	//await denoiser.execute(noisey);
 
 	updateTimeDisplay(startTime);
@@ -65,7 +57,7 @@ async function doDenoise() {
 const button = document.getElementById("execute-button") as HTMLButtonElement;
 button.addEventListener("click", doDenoise);
 
-//* Utilities for the Demo ------------------------------
+//* Utilities for the Demo ===========================================
 
 //* visibility toggles
 // get the button to toggle denose visibility

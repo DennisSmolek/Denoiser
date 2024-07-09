@@ -25,10 +25,14 @@ export class WebGPURenderer {
     }
 
     renderBuffer(buffer: GPUBuffer) {
-        renderToCanvas(this.device, this.canvas, buffer);
+        renderToCanvas(this.device!, this.canvas, buffer);
     }
     renderTestImage(imageSource = "./noisey.jpg") {
-        renderToCanvas(this.device, this.canvas, null, imageSource);
+        renderToCanvas(this.device!, this.canvas, null, imageSource);
+    }
+
+    getImageBuffer(imageSource: string) {
+        return createGPUBufferFromImage(this.device!, imageSource);
     }
 
     onReady(callback: (renderer: WebGPURenderer) => void) {
@@ -168,15 +172,15 @@ async function createGPUBufferFromImage(device: GPUDevice, imageSrc: string) {
 }
 
 // Updated main function to include image loading option
-export async function renderToCanvas(device: GPUDevice, canvas: HTMLCanvasElement, inputBuffer: GPUBuffer, imageSource = null) {
+export async function renderToCanvas(device: GPUDevice, canvas: HTMLCanvasElement, inputBuffer?: GPUBuffer, imageSource = null) {
     const { context, pipeline } = await initWebGPU(device, canvas);
 
     let gpuBuffer: GPUBuffer;
     if (imageSource) {
         gpuBuffer = await createGPUBufferFromImage(device, imageSource);
-    } else {
+    } else if (inputBuffer) {
         gpuBuffer = inputBuffer;
-    }
+    } else throw new Error("Either inputBuffer or imageSource must be provided");
 
     const bindGroup = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
@@ -209,11 +213,83 @@ export async function renderToCanvas(device: GPUDevice, canvas: HTMLCanvasElemen
 
     render();
 }
+async function processToBuffer(device: GPUDevice, inputBuffer: GPUBuffer | null, imageSource: string | null): Promise<GPUBuffer> {
+    // Initialize WebGPU
+    const { pipeline } = await initWebGPU(device, document.createElement('canvas'));
 
-// Usage examples:
-// 1. With TensorFlow.js GPUBuffer:
-// const tfGPUBuffer = await tf.dataToGPU(yourTensorFlowData);
-// renderToCanvas(tfGPUBuffer);
+    // Determine the input: either use the provided buffer or create one from the image
+    let sourceBuffer: GPUBuffer;
+    if (imageSource) {
+        sourceBuffer = await createGPUBufferFromImage(device, imageSource);
+    } else if (inputBuffer) {
+        sourceBuffer = inputBuffer;
+    } else {
+        throw new Error("Either inputBuffer or imageSource must be provided");
+    }
 
-// 2. With test image:
-// renderToCanvas(null, 'path/to/your/test-image.jpg');
+    // Create an output buffer
+    const outputBuffer = device.createBuffer({
+        size: 1280 * 720 * 4 * 4, // 1280x720 pixels, 4 channels (RGBA), 4 bytes per float
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+
+    // Create bind groups
+    const bindGroupLayout = pipeline.getBindGroupLayout(0);
+    const bindGroup = device.createBindGroup({
+        layout: bindGroupLayout,
+        entries: [{
+            binding: 0,
+            resource: { buffer: sourceBuffer }
+        }],
+    });
+
+    // Create a compute pipeline for processing
+    const computeShaderModule = device.createShaderModule({
+        code: `
+            @group(0) @binding(0) var<storage, read> inputBuffer: array<f32>;
+            @group(0) @binding(1) var<storage, write> outputBuffer: array<f32>;
+
+            @compute @workgroup_size(16, 16)
+            fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+                let x = global_id.x;
+                let y = global_id.y;
+                if (x >= 1280u || y >= 720u) {
+                    return;
+                }
+                let index = (y * 1280u + x) * 4u;
+                outputBuffer[index] = inputBuffer[index];
+                outputBuffer[index + 1u] = inputBuffer[index + 1u];
+                outputBuffer[index + 2u] = inputBuffer[index + 2u];
+                outputBuffer[index + 3u] = inputBuffer[index + 3u];
+            }
+        `
+    });
+
+    const computePipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: {
+            module: computeShaderModule,
+            entryPoint: 'main',
+        },
+    });
+
+    // Create a command encoder and pass
+    const commandEncoder = device.createCommandEncoder();
+    const computePass = commandEncoder.beginComputePass();
+    computePass.setPipeline(computePipeline);
+    computePass.setBindGroup(0, device.createBindGroup({
+        layout: computePipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: sourceBuffer } },
+            { binding: 1, resource: { buffer: outputBuffer } },
+        ],
+    }));
+    computePass.dispatchWorkgroups(Math.ceil(1280 / 16), Math.ceil(720 / 16));
+    computePass.end();
+
+    // Submit the command buffer
+    device.queue.submit([commandEncoder.finish()]);
+
+    // Return the output buffer
+    return outputBuffer;
+}

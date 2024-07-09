@@ -136,11 +136,6 @@ export class Denoiser {
         });
     }
 
-    //* Debug test
-    runTest() {
-        testTiling();
-    }
-
     //* Backend and Context ------------------------------
 
     // Take in potential contexts and set the backend
@@ -338,16 +333,25 @@ export class Denoiser {
     async execute(colorInput?: ModelInput, albedoInput?: ModelInput, normalInput?: ModelInput) {
         if (colorInput || albedoInput || normalInput) switch (this.inputMode) {
             case 'webgl':
-                //todo: implement webgl input
+                if (!this.height || !this.width) throw new Error('Denoiser: Height and Width must be set when executing with webGL input.');
+                if (colorInput) this.setInputTexture('color', colorInput as WebGLTexture, this.height, this.width);
+                if (albedoInput) this.setInputTexture('albedo', albedoInput as WebGLTexture, this.height, this.width);
+                if (normalInput) this.setInputTexture('normal', normalInput as WebGLTexture, this.height, this.width);
                 break;
+
             case 'webgpu':
-                //todo: implement webgpu input
+                if (!this.height || !this.width) throw new Error('Denoiser: Height and Width must be set when executing with webGPU input.');
+                if (colorInput) this.setInputBuffer('color', colorInput as GPUBuffer, this.height, this.width);
+                if (albedoInput) this.setInputBuffer('albedo', albedoInput as GPUBuffer, this.height, this.width);
+                if (normalInput) this.setInputBuffer('normal', normalInput as GPUBuffer, this.height, this.width);
                 break;
+
             case 'tensor':
                 if (colorInput) this.setInputTensor('color', colorInput as tf.Tensor3D);
                 if (albedoInput) this.setInputTensor('albedo', albedoInput as tf.Tensor3D);
                 if (normalInput) this.setInputTensor('normal', normalInput as tf.Tensor3D);
                 break;
+
             default:
                 if (colorInput) this.setImage('color', colorInput as ImgInput);
                 if (albedoInput) this.setImage('albedo', albedoInput as ImgInput);
@@ -360,7 +364,6 @@ export class Denoiser {
     // actually execute the model with the set inputs of this class
     private async executeModel() {
         let startTime: number;
-        let endTime: number;
         if (this.debugging) console.log('%c Denoiser: Denoising...', 'background: blue; color: white;');
         // if we need to rebuild the model
         if (this.isDirty) await this.build();
@@ -387,8 +390,7 @@ export class Denoiser {
         if (this.debugging) {
             //console.log('Output Tensor')
             //  output.print(); 
-            endTime = performance.now();
-            if (this.debugging) console.log(`Denoiser: Execution Time: ${endTime - startTime!}ms`);
+            if (this.debugging) console.log(`Denoiser: Execution Time: ${performance.now() - startTime!}ms`);
         }
         return this.handleReturn(output);
     }
@@ -411,11 +413,8 @@ export class Denoiser {
             if (albedo) {
                 if (normal) concatenatedImage = tf.concat([color, albedo, normal], -1);
                 else concatenatedImage = tf.concat([color, albedo], -1);
-            } else if (normal) {
-                concatenatedImage = tf.concat([color, normal], -1);
-            } else {
-                concatenatedImage = color;
-            }
+            } else concatenatedImage = color;
+
             // Reshape for batch size
             return concatenatedImage.expandDims(0) as Tensor4D; // Now shape is [1, height, width, 9]
         });
@@ -467,11 +466,13 @@ export class Denoiser {
             case 'tensor':
                 toReturn = outputTensor;
                 break;
+
             case 'webgl':
                 data = outputTensor.dataToGPU();
                 if (!data.texture) throw new Error('Denoiser: Could not convert to webGL texture');
                 toReturn = data.texture;
                 break;
+
             case 'webgpu':
                 // webGPU MUST have the alpha channel
                 // if we didn't add it back (because of data input) we need to now with blanks
@@ -480,6 +481,7 @@ export class Denoiser {
                 if (!data.buffer) throw new Error('Denoiser: Could not convert to webGPU buffer');
                 toReturn = data.buffer;
                 break;
+
             case 'float32': {
                 const float32Data = outputTensor.dataSync() as Float32Array;
                 toReturn = float32Data;
@@ -501,9 +503,8 @@ export class Denoiser {
 
     //* Set the Inputs -----------------------------------
 
-    // set the input tensor
+    // set the input tensor. Rarely accessed directly but used by all internals
     setInputTensor(name: 'color' | 'albedo' | 'normal', tensor: tf.Tensor3D) {
-        // console.log('Setting Image Tensor:', name, tensor.shape);
         // destroy existing tensor
         const existingTensor = this.inputTensors.get(name);
         if (existingTensor) existingTensor.dispose();
@@ -516,13 +517,7 @@ export class Denoiser {
         // check if data is a float32 and reject otherwise
         if (data.constructor !== Float32Array)
             throw new Error('Invalid Input data type. Must be a Float32Array');
-        /*
-        const pixelLength = noAlpha ? 3 : 4;
-        // check the length of the data
-         Im removing this check for now because it might be a unnecessary performance hit
-        if (data.length / pixelLength !== width * height) {
-            throw new Error('Invalid data length. Length must be equal to count * 4.');
-        }*/
+
         const baseTensor = tf.tensor3d(data, [height, width, channels])
         if (channels === 4) {
             // split the alpha channel from the rgb data (NOTE: destroys the baseTensor)
@@ -532,11 +527,10 @@ export class Denoiser {
             // we only care about the alpha of the color input
             if (name === 'color') this.inputAlpha = alpha;
         } else this.setInputTensor(name, baseTensor);
-
-
     }
 
     //* Image Input ---
+    // TODO change this to setInputImage
     //set the image and tensor, normalize (potentailly) flipY if needed
     setImage(name: 'color' | 'albedo' | 'normal', imgData: ImgInput, flipY = false) {
         let finalData = imgData;
@@ -594,6 +588,19 @@ export class Denoiser {
         });
     }
 
+    // for a webGPU buffer create and set it
+    setInputBuffer(name: 'color' | 'albedo' | 'normal', buffer: GPUBuffer, height: number, width: number, channels = 4) {
+        const tensor = tf.tensor({ buffer: buffer }, [height, width, channels], 'float32') as tf.Tensor3D;
+        this.setInputTensor(name, tensor);
+    }
+
+    // for a webGL texture create and set it
+    setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, height: number, width: number, channels = 4) {
+        const tensor = tf.tensor({ texture, height, width, channels: 'RGB' }, [height, width, channels], 'float32') as tf.Tensor3D;
+        this.setInputTensor(name, tensor);
+    }
+
+    // this is mostly an internal debug thing but is super helpful
     setCanvas(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
         this.outputToCanvas = true;
@@ -632,54 +639,3 @@ function hasSizeMissmatch(img: HTMLImageElement) {
     if (!img.naturalHeight || !img.naturalWidth) return true;
     return img.height !== img.naturalHeight || img.width !== img.naturalWidth;
 }
-
-
-/*
-// get the alpha channel from a float32 array
-function getAlphaChannel(imageData: Float32Array, count: number): Float32Array {
-    const alphaData = new Float32Array(count);
-    let j = 0; // Index for alphaData array
-
-    for (let i = 3; i < imageData.length; i += 4) {
-        alphaData[j++] = imageData[i];
-    }
-
-    return alphaData;
-}
-
-//* This functionality should be moved to tensorflow
-// this is actually more useful
-// take a float32array and return two float32arrays, one without the alpha and one just the alpha
-function splitAlphaChannel(imageData: Float32Array, count: number): [Float32Array, Float32Array] {
-    const rgbData = new Float32Array(count * 3);
-    const alphaData = new Float32Array(count);
-    let j = 0; // Index for rgbData array
-    let k = 0; // Index for alphaData array
-
-    for (let i = 0; i < imageData.length; i += 4) {
-        rgbData[j++] = imageData[i];
-        rgbData[j++] = imageData[i + 1];
-        rgbData[j++] = imageData[i + 2];
-        alphaData[k++] = imageData[i + 3];
-    }
-
-    return [rgbData, alphaData];
-}
-
-function addAlphaChannel(imageData: Float32Array, itemCount: number, alphaData?: Float32Array): Float32Array {
-    const startTime = performance.now();
-    const output = new Float32Array(itemCount * 4); // Create a new array with space for the alpha channel
-    let j = 0; // Index for output array
-
-    for (let i = 0; i < imageData.length; i += 3) {
-        output[j++] = imageData[i];     // R
-        output[j++] = imageData[i + 1]; // G
-        output[j++] = imageData[i + 2]; // B
-        // If we have saved alpha data, use it; otherwise, default to 1 (fully opaque)
-        output[j++] = alphaData ? alphaData[i / 3] : 1;
-    }
-    console.log(`Denoiser: Alpha Channel Addition duration: ${performance.now() - startTime}ms`);
-
-    return output;
-}
-    */

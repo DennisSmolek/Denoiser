@@ -1,3 +1,5 @@
+// This is a mid level tensor tiling function that tries to keep everything on the GPU
+// there are improvements that can be made like saving the masks but for now it works great!
 import * as tf from '@tensorflow/tfjs';
 
 export class GPUTensorTiler {
@@ -42,7 +44,7 @@ export class GPUTensorTiler {
                     [0, 0]
                 ]);
 
-                tilesList.push(paddedTile);
+                tilesList.push(paddedTile as tf.Tensor4D);
             }
         }
 
@@ -63,6 +65,7 @@ export class GPUTensorTiler {
         return this.reassembleTilesWithBlending(processedTiles, [batchSize, height, width, 3]);
     }
 
+    // We should make this so it doesn't run every time
     private createBlendingMask(): tf.Tensor2D {
         return tf.tidy(() => {
             const [tileHeight, tileWidth] = this.tileSize;
@@ -77,7 +80,7 @@ export class GPUTensorTiler {
             }
 
             return mask.toTensor();
-        });
+        }) as tf.Tensor2D;
     }
 
     private reassembleTilesWithBlending(tiles: tf.Tensor4D[], outputShape: [number, number, number, number]): tf.Tensor4D {
@@ -127,6 +130,7 @@ export class GPUTensorTiler {
     }
 }
 
+
 // Debug function to compare two tiles
 function compareTiles(tile1: tf.Tensor4D, tile2: tf.Tensor4D): boolean {
     const diff = tile1.sub(tile2).abs().max();
@@ -135,7 +139,8 @@ function compareTiles(tile1: tf.Tensor4D, tile2: tf.Tensor4D): boolean {
 
 // Debug function to create colored tiles
 function createColoredTiles(shape: [number, number, number, number], tileSize: [number, number]): tf.Tensor4D {
-    const [batchSize, height, width, channels] = shape;
+    //const [batchSize, height, width, channels] = shape;
+    const [, height, width,] = shape;
     const [tileHeight, tileWidth] = tileSize;
     const tilesY = Math.ceil(height / tileHeight);
     const tilesX = Math.ceil(width / tileWidth);
@@ -165,7 +170,7 @@ function createColoredTiles(shape: [number, number, number, number], tileSize: [
         }
 
         return coloredTiles.toTensor();
-    });
+    }) as tf.Tensor4D;
 }
 
 // Test function
