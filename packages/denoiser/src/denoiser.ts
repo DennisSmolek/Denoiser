@@ -6,7 +6,7 @@ import { Weights } from './weights';
 import type { TensorMap } from './tza';
 import { UNet } from './unet';
 import { splitRGBA3D, concatenateAlpha3D } from './utils';
-import { testTiling } from './improvedTileHandling';
+import { testTiling, GPUTensorTiler } from './improvedTileHandling';
 
 import '@tensorflow/tfjs-backend-webgpu';
 import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
@@ -67,6 +67,11 @@ export class Denoiser {
     debugging = false;
     usePassThrough = false;
 
+    //* Tiling ---
+    useTiling = false;
+    tileStride = 16;
+    tileSize = 256;
+
     //* Internal -----------------------------------
 
     // listeners for execution callbacks
@@ -81,6 +86,8 @@ export class Denoiser {
     private inputTensors: Map<'color' | 'albedo' | 'normal', tf.Tensor3D> = new Map();
     private inputAlpha?: tf.Tensor3D;
     private oldOutputTensor?: tf.Tensor3D;
+
+    private tiler?: GPUTensorTiler;
 
     // WebGL ---
     private webglProgram?: WebGLProgram;
@@ -277,11 +284,20 @@ export class Denoiser {
         if (this.props.useAlbedo) channels += 3;
         if (this.props.useNormal) channels += 3;
 
+        // calculate dimensions
+        const height = this.useTiling ? this.tileSize : this.props.height;
+        const width = this.useTiling ? this.tileSize : this.props.width;
         if (this.debugging) startTime = performance.now();
-        this.unet = new UNet({ weights: this.activeTensorMap, size, height: this.props.height, width: this.props.width, channels });
+        this.unet = new UNet({ weights: this.activeTensorMap, size, height, width, channels });
 
-        if (this.usePassThrough) this.unet.debugBuild();
-        else this.unet.build();
+        const model = (this.usePassThrough) ? await this.unet.debugBuild() : await this.unet.build();
+        if (!model) throw new Error('UNet Model failed to build');
+
+        //* Tiling
+        if (this.useTiling) {
+            this.tiler = new GPUTensorTiler(model, [this.tileSize, this.tileSize], [1, this.props.height, this.props.width, channels], this.tileStride);
+            console.log(`Tiler Created, Tile Size: [${this.tileSize}, ${this.tileSize}], Stride: ${this.tileStride}, Height: ${this.props.height}, Width: ${this.props.width}, Channels: ${channels}`);
+        }
 
         if (this.debugging) {
             endTime = performance.now();
@@ -353,10 +369,10 @@ export class Denoiser {
 
         // process and send the input to the model
         const inputTensor = await this.handleModelInput();
-        this.unet.inputTensor = inputTensor;
 
-        // execute the model
-        const result = await this.unet.execute();
+        // Execute model with tiling or standard
+        const result = this.useTiling ? await this.tiler!.processLargeTensor(inputTensor)
+            : await this.unet.execute(inputTensor);
 
         // this helps us debug input/output by making the model a pure pass through
         if (this.usePassThrough) {

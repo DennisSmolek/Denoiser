@@ -17,6 +17,7 @@ renderer.onReady(() => {
 	renderer.renderTestImage();
 	denoiser = new Denoiser("webgpu", renderer.device);
 	//denoiser = new Denoiser('webgl');
+	denoiser.useTiling = true;
 
 	denoiser.onBackendReady(() => setupDenoising());
 	denoiser.setCanvas(rawOutputCanvas);

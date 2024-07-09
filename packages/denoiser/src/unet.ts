@@ -39,10 +39,8 @@ export class UNet {
         this._inputTensor = inputTensor;
     }
 
-    async execute() {
-        // because I want to see the weights data
-        //console.log('input weights:', this.weights);
-
+    async execute(inputTensor?: Tensor4D) {
+        if (inputTensor) this.inputTensor = inputTensor;
         if (!this._inputTensor) throw new Error('Input tensor not set!');
         if (!this.model) throw new Error('Model not built yet!');
 
@@ -68,8 +66,12 @@ export class UNet {
 
         return this.model;
     }
+    async build(large = false) {
+        if (large) return this._buildLarge();
+        return this._buildStandard();
+    }
 
-    async build() {
+    private async _buildStandard() {
         // debug all stats
         console.log(`%cBuilding Standard UNet, %cHeight:${this.height} | Width:${this.width} | Channels:${this.inChannels} | Size:${this.size}`, 'color: #57A773', 'color: white; background-color: #57A773; padding: 2px; border-radius: 4px; font-weight: bold;');
 
@@ -137,6 +139,11 @@ export class UNet {
         //this.model.summary();
         // Return the model
         return this.model;
+    }
+
+    //TODO build large model
+    private _buildLarge() {
+        throw new Error('Method not implemented.');
     }
 
     // generate the conv layers and add weights
