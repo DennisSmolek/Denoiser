@@ -7,15 +7,16 @@ let denoiser: Denoiser;
 //* WebGPU ===========================================
 // get the canvas for output
 const outputCanvas = document.getElementById("output") as HTMLCanvasElement;
-// const rawOutputCanvas = document.getElementById("rawOutput") as HTMLCanvasElement;
+// debugging canvas, you wont need this but it helps if you break stuff
+const rawOutputCanvas = document.getElementById("rawOutput");
 // create the renderer
 const renderer = new WebGPURenderer(outputCanvas);
 renderer.onReady(() => {
 	console.log("Renderer is ready");
 	//renderer.renderTestImage();
+	// Create the denoiser with the webGPU backend and Device
 	denoiser = new Denoiser("webgpu", renderer.device);
 	denoiser.onBackendReady(() => setupDenoising());
-	//denoiser.setCanvas(rawOutputCanvas);
 });
 
 //* Denoising ===========================================
@@ -27,6 +28,9 @@ const normal = document.getElementById("normal") as HTMLImageElement;
 // because we have to wait a little longer for the webGPU backend lets make a handy function
 function setupDenoising() {
 	denoiser.debugging = true; // uncomment if you want detailed logs
+	// if something isn't looking right, this will dump the outputBuffer to the canvas
+	//denoiser.setCanvas(rawOutputCanvas as HTMLCanvasElement);
+
 	// use tiling with webGPU and larger images. (May become standard)
 	denoiser.useTiling = true;
 	// activate the button
@@ -45,8 +49,15 @@ function setupDenoising() {
 async function doDenoise() {
 	const startTime = performance.now();
 
+	// render a image to buffer
+	const noisyBuffer = await renderer.getImageBuffer("./noisey.jpg");
+
+	// set the buffer as input
+	denoiser.setInputBuffer("color", noisyBuffer, 720, 1280);
+	// pass null as we set the buffer manually
+	denoiser.execute(null, albedo, normal);
 	// different levels of execution
-	await denoiser.execute(noisey, albedo, normal);
+	//await denoiser.execute(noisey, albedo, normal);
 	//await denoiser.execute(noisey, albedo);
 	//await denoiser.execute(noisey);
 

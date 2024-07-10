@@ -32,7 +32,7 @@ export class WebGPURenderer {
     }
 
     getImageBuffer(imageSource: string) {
-        return createGPUBufferFromImage(this.device!, imageSource);
+        return processToBuffer(this.device!, null, imageSource);
     }
 
     onReady(callback: (renderer: WebGPURenderer) => void) {
@@ -214,7 +214,7 @@ export async function renderToCanvas(device: GPUDevice, canvas: HTMLCanvasElemen
     render();
 }
 async function processToBuffer(device: GPUDevice, inputBuffer: GPUBuffer | null, imageSource: string | null): Promise<GPUBuffer> {
-    // Initialize WebGPU
+    // Initialize WebGPU (we don't actually need a canvas for this operation)
     const { pipeline } = await initWebGPU(device, document.createElement('canvas'));
 
     // Determine the input: either use the provided buffer or create one from the image
@@ -230,24 +230,15 @@ async function processToBuffer(device: GPUDevice, inputBuffer: GPUBuffer | null,
     // Create an output buffer
     const outputBuffer = device.createBuffer({
         size: 1280 * 720 * 4 * 4, // 1280x720 pixels, 4 channels (RGBA), 4 bytes per float
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-
-    // Create bind groups
-    const bindGroupLayout = pipeline.getBindGroupLayout(0);
-    const bindGroup = device.createBindGroup({
-        layout: bindGroupLayout,
-        entries: [{
-            binding: 0,
-            resource: { buffer: sourceBuffer }
-        }],
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        label: 'processBuffer'
     });
 
     // Create a compute pipeline for processing
     const computeShaderModule = device.createShaderModule({
         code: `
             @group(0) @binding(0) var<storage, read> inputBuffer: array<f32>;
-            @group(0) @binding(1) var<storage, write> outputBuffer: array<f32>;
+            @group(0) @binding(1) var<storage, read_write> outputBuffer: array<f32>;
 
             @compute @workgroup_size(16, 16)
             fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -273,17 +264,20 @@ async function processToBuffer(device: GPUDevice, inputBuffer: GPUBuffer | null,
         },
     });
 
-    // Create a command encoder and pass
-    const commandEncoder = device.createCommandEncoder();
-    const computePass = commandEncoder.beginComputePass();
-    computePass.setPipeline(computePipeline);
-    computePass.setBindGroup(0, device.createBindGroup({
+    // Create bind group
+    const bindGroup = device.createBindGroup({
         layout: computePipeline.getBindGroupLayout(0),
         entries: [
             { binding: 0, resource: { buffer: sourceBuffer } },
             { binding: 1, resource: { buffer: outputBuffer } },
         ],
-    }));
+    });
+
+    // Create a command encoder and pass
+    const commandEncoder = device.createCommandEncoder();
+    const computePass = commandEncoder.beginComputePass();
+    computePass.setPipeline(computePipeline);
+    computePass.setBindGroup(0, bindGroup);
     computePass.dispatchWorkgroups(Math.ceil(1280 / 16), Math.ceil(720 / 16));
     computePass.end();
 

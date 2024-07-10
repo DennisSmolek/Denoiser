@@ -14,7 +14,7 @@ import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
 type ImgInput = tf.PixelData | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | ImageBitmap;
 
 type ListenerCalback = (data: any) => void;
-type ModelInput = ImgInput | WebGLTexture | tf.GPUData | tf.Tensor3D;
+type ModelInput = null | ImgInput | WebGLTexture | tf.GPUData | tf.Tensor3D;
 type DenoiserProps = {
     filterType: 'rt' | 'rt_hdr' | 'rt_ldr' | 'rt_ldr_alb' | 'rt_ldr_alb_nrm' | 'rt_ldr_calb_cnrm';
     quality: 'fast' | 'high' | 'balanced';
@@ -590,8 +590,17 @@ export class Denoiser {
 
     // for a webGPU buffer create and set it
     setInputBuffer(name: 'color' | 'albedo' | 'normal', buffer: GPUBuffer, height: number, width: number, channels = 4) {
-        const tensor = tf.tensor({ buffer: buffer }, [height, width, channels], 'float32') as tf.Tensor3D;
-        this.setInputTensor(name, tensor);
+        const baseTensor = tf.tensor({ buffer: buffer }, [height, width, channels], 'float32') as tf.Tensor3D;
+
+        // if the channels is 4 we need to strip the alpha channel
+        if (channels === 4) {
+            // split the alpha channel from the rgb data (NOTE: destroys the baseTensor)
+            const { rgb, alpha } = splitRGBA3D(baseTensor);
+            this.setInputTensor(name, rgb);
+            this.inputAlpha = alpha;
+            // we only care about the alpha of the color input
+            if (name === 'color') this.inputAlpha = alpha;
+        } else this.setInputTensor(name, baseTensor);
     }
 
     // for a webGL texture create and set it
