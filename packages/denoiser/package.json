@@ -30,6 +30,7 @@
     },
     "files": [
         "dist/**",
+        "tzas/**",
         "README.md",
         "LICENSE"
     ],

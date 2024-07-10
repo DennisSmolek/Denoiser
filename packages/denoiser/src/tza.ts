@@ -3,26 +3,76 @@ import * as tf from '@tensorflow/tfjs';
 // Assuming TensorMap is a Map where keys are string and values are tf.Tensor
 export type TensorMap = Map<string, tf.Tensor>;
 
-// Load a TZA file
+// Original Load a TZA file
+/*
 export async function loadTZAFile(url: string): Promise<ArrayBuffer> {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Failed to load TZA file from ${url}`);
+    return await response.arrayBuffer();
+}
+    */
+export async function loadTZAFile(url: string): Promise<ArrayBuffer> {
+    // Use the HEAD method to get headers without downloading the file
+    const headResponse = await fetch(url, { method: 'HEAD' });
+    if (!headResponse.ok) throw new Error(`Failed to fetch TZA file headers from ${url}`);
+
+    // Attempt to extract the filename from the Content-Disposition header
+    const contentDisposition = headResponse.headers.get('Content-Disposition');
+    let filename: string | null | undefined = null;
+    if (contentDisposition) {
+        const matches = contentDisposition.match(/filename="?(.+?)"?$/);
+        if (matches?.[1]) {
+            filename = matches[1];
+        }
+    }
+
+    // If filename is not found in Content-Disposition, parse it from the URL
+    if (!filename) {
+        const urlObj = new URL(url);
+        filename = urlObj.pathname.split('/').pop();
+    }
+
+    // Check if the filename ends with '.tza'
+    if (!filename || !filename.endsWith('.tza')) {
+        throw new Error(`The file at ${url} does not appear to be a TZA file based on its extension.`);
+    }
+
+    // If the file extension is correct, proceed to download the file
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Failed to load TZA file from ${url}`);
     return await response.arrayBuffer();
 }
 
 // load a TZA file from the default tzas in the library
-export async function loadDefaultTZAFile(fileName: string): Promise<ArrayBuffer> {
-    const url = getTZAFilePath(fileName);
+export async function loadDefaultTZAFile(fileName: string, subDirectory?: string): Promise<ArrayBuffer> {
+    //@ts-ignore
+    const viteDevMode = import.meta.env.DEV;
+    console.log('viteDevMode:', viteDevMode);
+
+    const url = viteDevMode ? getdevTZAFilePath(fileName) : getTZAFilePath(fileName, subDirectory);
     return loadTZAFile(url);
 }
 
-function getTZAFilePath(fileName: string): string {
+// this only works in dev environments
+
+function getdevTZAFilePath(fileName: string): string {
     if (!fileName) throw new Error('No filename provided in path getting');
     // Assuming the library's package name is 'my-library' and files are in 'tza' folder
     const relativePath = `./tzas/${fileName}`;
-    //console.log('relative path:', relativePath);
+    console.log('relative path:', relativePath);
     return new URL(relativePath, import.meta.url).href;
 }
+
+
+// take an optional file path from the root or get the file from the root of the site
+
+function getTZAFilePath(fileName: string, subDirectory?: string): string {
+    if (!fileName) throw new Error('No filename provided in path getting');
+    const relativePath = `/${subDirectory ? `${subDirectory}/` : 'tzas/'}${fileName}`;
+    // console.log('root path:', relativePath);
+    return new URL(relativePath, import.meta.url).href;
+}
+
 
 export function parseTZA(buffer: ArrayBuffer): TensorMap {
     const tensorMap = new Map<string, tf.Tensor>();

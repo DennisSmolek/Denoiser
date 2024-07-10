@@ -136,6 +136,19 @@ export class Denoiser {
         });
     }
 
+    set weightsPath(path: string) {
+        this.weights.path = path;
+    }
+    get weightsPath() {
+        return this.weights.path!;
+    }
+    set weightsUrl(url: string) {
+        this.weights.url = url;
+    }
+    get weightsUrl() {
+        return this.weights.url!;
+    }
+
     //* Backend and Context ------------------------------
 
     // Take in potential contexts and set the backend

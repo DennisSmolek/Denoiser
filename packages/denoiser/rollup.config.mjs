@@ -33,14 +33,7 @@ export default [
             typescript({
                 tsconfig: path.resolve('tsconfig.json')
             }),
-            filesize(),
-            copy({
-                targets: [
-                    { src: 'tzas/*', dest: 'dist/tzas' }
-                ],
-                hook: 'writeBundle', // Ensures copying is done after the bundle is written
-                verbose: true
-            })
+            filesize()
         ],
         // disable three-stdlib eval warning for now
         onwarn: (warning, warn) => {
@@ -50,3 +43,13 @@ export default [
         }
     }
 ];
+/*
+,
+            copy({
+                targets: [
+                    { src: 'tzas/*', dest: 'dist/tzas' }
+                ],
+                hook: 'writeBundle', // Ensures copying is done after the bundle is written
+                verbose: true
+            })
+                */

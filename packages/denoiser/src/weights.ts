@@ -46,6 +46,12 @@ export class Weights {
     private static instance: Weights;
     private collections: Collections;
 
+    // subdirectory from the root to the weights
+    path?: string;
+
+    // url to a remote source of the weights
+    url?: string;
+
     private constructor() {
         //console.log('Weights initialized...');
         this.collections = new Map();
@@ -56,13 +62,14 @@ export class Weights {
         return Weights.instance;
     }
 
-    async getCollection(collection = 'rt_ldr', path?: string): Promise<TensorMap> {
+    async getCollection(collection = 'rt_ldr', overrideUrl?: string): Promise<TensorMap> {
         //if we already have the collection return it
         if (this.collections.has(collection)) return this.collections.get(collection)!;
         // else load it remote
         let buffer: ArrayBuffer;
-        if (path) buffer = await loadTZAFile(path);
-        else buffer = await loadDefaultTZAFile(`${collection}.tza`);
+        if (overrideUrl) buffer = await loadTZAFile(overrideUrl);
+        else if (this.url) buffer = await loadTZAFile(`${this.url}/${collection}.tza`);
+        else buffer = await loadDefaultTZAFile(`${collection}.tza`, this.path);
 
         const tensorMap = parseTZA(buffer);
         this.collections.set(collection, tensorMap);
