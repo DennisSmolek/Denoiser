@@ -46,8 +46,9 @@ export async function loadTZAFile(url: string): Promise<ArrayBuffer> {
 // load a TZA file from the default tzas in the library
 export async function loadDefaultTZAFile(fileName: string, subDirectory?: string): Promise<ArrayBuffer> {
     //@ts-ignore
-    const viteDevMode = import.meta.env.DEV;
-    console.log('viteDevMode:', viteDevMode);
+    //const viteDevMode = import.meta.env.DEV;
+    // removing this hack for now
+    const viteDevMode = false;
 
     const url = viteDevMode ? getdevTZAFilePath(fileName) : getTZAFilePath(fileName, subDirectory);
     return loadTZAFile(url);

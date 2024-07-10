@@ -119,9 +119,23 @@ export class Denoiser {
         this.isDirty = true;
         this.props.width = width;
     }
+
+    get quality() {
+        return this.props.quality;
+    }
+
     set quality(quality: 'fast' | 'high' | 'balanced') {
         this.isDirty = true;
         this.props.quality = quality;
+    }
+
+    get hdr() {
+        return this.props.hdr;
+    }
+
+    set hdr(hdr: boolean) {
+        this.isDirty = true;
+        this.props.hdr = hdr;
     }
 
     get backendReady() {
