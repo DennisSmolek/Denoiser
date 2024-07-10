@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@types/dropzone": "^5.7.8",
-    "denoiser": "workspace:^",
+    "denoiser": "^0.0.3",
     "dropzone": "^6.0.0-beta.2"
   },
   "devDependencies": {

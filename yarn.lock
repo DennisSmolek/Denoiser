@@ -2761,6 +2761,7 @@ __metadata:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
     "@vitejs/plugin-react": "npm:^4.3.1"
+    denoiser: "workspace:^"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
     eslint-plugin-react-refresh: "npm:^0.4.7"
@@ -2850,7 +2851,7 @@ __metadata:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
     "@vitejs/plugin-react": "npm:^4.3.1"
-    denoiser: "workspace:^"
+    denoiser: "npm:^0.0.3"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
     eslint-plugin-react-refresh: "npm:^0.4.7"
@@ -2869,7 +2870,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"denoiser@workspace:^, denoiser@workspace:packages/denoiser":
+"denoiser@npm:^0.0.3, denoiser@workspace:^, denoiser@workspace:packages/denoiser":
   version: 0.0.0-use.local
   resolution: "denoiser@workspace:packages/denoiser"
   dependencies:
