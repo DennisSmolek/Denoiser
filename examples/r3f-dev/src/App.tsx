@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useRef } from "react";
 import { useThree } from "@react-three/fiber";
 import { useTexture } from "@react-three/drei";
 import { useControls, button } from "leva";
@@ -16,7 +16,7 @@ function App() {
 	const planeUint8Ref = useRef<THREE.Mesh>(null);
 	const denoiser = useRef<Denoiser | null>(null);
 	const fullTexture = useRef<THREE.Texture | null>(null);
-	const fancyTextureSet = useRef(false);
+	//const fancyTextureSet = useRef(false);
 	const imgElement = useRef<HTMLImageElement>();
 	const denoiserStart = useRef(performance.now());
 	const tfActive = useRef(false);
@@ -26,7 +26,7 @@ function App() {
 	const renderTarget = useFBO(512, 512, { type: THREE.UnsignedByteType });
 
 	// load the sample textures
-	const [voltronTexture, piratesTexture, voltron2] = useTexture([
+	const [voltronTexture, , voltron2] = useTexture([
 		"voltron.png",
 		"pirates.png",
 		"voltron2.png",
@@ -76,6 +76,7 @@ function App() {
 			fullTexture.current.wrapT = THREE.ClampToEdgeWrapping;
 			// set the texture to the plane
 			if (planeRef.current) {
+				//@ts-ignore
 				planeRef.current.material.map = fullTexture.current;
 				console.log("Inital Float32 Texture set on the plane");
 			}
@@ -113,18 +114,20 @@ function App() {
 
 				console.log(
 					"Plane set back to voltron texture",
-					planeUint8Ref.current!.material.map,
+					(planeUint8Ref.current!.material as THREE.MeshBasicMaterial).map,
 				);
 
 				setTimeout(() => {
 					console.log("trying to set it to the texture again");
 
 					// set the texture to the plane
-					planeUint8Ref.current!.material.map.image = data;
-					planeUint8Ref.current!.material.map.needsUpdate = true;
+					(planeUint8Ref.current!.material as THREE.MeshBasicMaterial)
+						.map!.image = data;
+					(planeUint8Ref.current!.material as THREE.MeshBasicMaterial)
+						.map!.needsUpdate = true;
 					console.log(
 						"Plane set to the denoised texture",
-						planeUint8Ref.current!.material.map,
+						(planeUint8Ref.current!.material as THREE.MeshBasicMaterial).map,
 					);
 				}, 5000);
 			}, 10000);
@@ -149,7 +152,7 @@ function App() {
 			console.log("Three restored");
 		});
 	}
-
+	/*
 	const updateTextureData = (newTexture: {
 		data: Float32Array;
 		width: number;
@@ -168,7 +171,7 @@ function App() {
 		);
 		//console.log("updated Float32 Texture", fullTexture.current);
 	};
-
+*/
 	const snapshotTestImage = () => {
 		if (!denoiser.current) return;
 
@@ -280,7 +283,7 @@ function App() {
 		gl.resetState();
 	}, 1);
 
-	const values = useControls({
+	useControls({
 		snapShotRenderTargetOld: button(snapShotRenderTarget),
 		snapshotTestImage: button(snapshotTestImage),
 		initializeDenoiser: button(() => initializeDenoiser()),
@@ -311,7 +314,7 @@ function App() {
 
 export default App;
 
-function applySRGBEncoding(imageData: Float32Array): Float32Array {
+export function applySRGBEncoding(imageData: Float32Array): Float32Array {
 	const encodedData = new Float32Array(imageData.length);
 	for (let i = 0; i < imageData.length; i += 4) {
 		const r = imageData[i];
@@ -327,7 +330,7 @@ function applySRGBEncoding(imageData: Float32Array): Float32Array {
 	return encodedData;
 }
 
-function getWebGLRenderingContext(canvas) {
+function getWebGLRenderingContext(canvas: HTMLCanvasElement) {
 	const WEBGL_ATTRIBUTES = {
 		alpha: false,
 		antialias: false,

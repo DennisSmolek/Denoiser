@@ -6,7 +6,7 @@ import { Weights } from './weights';
 import type { TensorMap } from './tza';
 import { UNet } from './unet';
 import { splitRGBA3D, concatenateAlpha3D } from './utils';
-import { testTiling, GPUTensorTiler } from './improvedTileHandling';
+import { GPUTensorTiler } from './improvedTileHandling';
 
 import '@tensorflow/tfjs-backend-webgpu';
 import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';

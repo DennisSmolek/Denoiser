@@ -1,12 +1,9 @@
-import { useState, useEffect, useRef } from "react";
-import reactLogo from "./assets/react.svg";
-import viteLogo from "/vite.svg";
+import { useEffect, useRef } from "react";
 import "./App.css";
 // for base testing import oidn
 import { Denoiser } from "denoiser";
 
 function App() {
-	const [count, setCount] = useState(0);
 	const hasMounted = useRef(false);
 	const noiseyImage = useRef<HTMLImageElement>(null);
 	const cleanedCanvas = useRef<HTMLCanvasElement>(null);

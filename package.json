@@ -2,7 +2,7 @@
   "name": "denoiser-root",
   "version": "1.0.0",
   "description": "Open Image Denoise using Tensorflow.js",
-  "repository": "https://github.com/DennisSmolek/OIDNFlow.js.git",
+  "repository": "https://github.com/DennisSmolek/Denoiser.git",
   "author": "Dennis Smolek <dennis@smolek.dev>",
   "license": "MIT",
   "packageManager": "yarn@4.1.1",

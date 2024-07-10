@@ -58,7 +58,7 @@ function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
 }
 
 // Initialize buffers
-function initBuffers(gl) {
+function initBuffers(gl: WebGL2RenderingContext) {
     const positionBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     const positions = [
@@ -86,7 +86,7 @@ function initBuffers(gl) {
 }
 
 // Main drawing function
-function drawTextureToCanvas(gl, texture) {
+function drawTextureToCanvas(gl: WebGL2RenderingContext, texture: WebGLTexture) {
     // Set viewport to match canvas size
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
@@ -99,11 +99,11 @@ function drawTextureToCanvas(gl, texture) {
     const programInfo = {
         program: shaderProgram,
         attribLocations: {
-            vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
-            textureCoord: gl.getAttribLocation(shaderProgram, 'aTextureCoord'),
+            vertexPosition: gl.getAttribLocation(shaderProgram!, 'aVertexPosition'),
+            textureCoord: gl.getAttribLocation(shaderProgram!, 'aTextureCoord'),
         },
         uniformLocations: {
-            uSampler: gl.getUniformLocation(shaderProgram, 'uSampler'),
+            uSampler: gl.getUniformLocation(shaderProgram!, 'uSampler'),
         },
     };
 
@@ -161,7 +161,7 @@ function drawTextureToCanvas(gl, texture) {
 }
 
 // Function to create a texture from an image
-export function createTextureFromImage(gl, image) {
+export function createTextureFromImage(gl: WebGL2RenderingContext, image: HTMLImageElement) {
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
 
@@ -183,7 +183,7 @@ export function loadImageAndRender(imageSrc: string, gl: WebGL2RenderingContext)
     const image = new Image();
     image.onload = () => {
         const texture = createTextureFromImage(gl, image);
-        drawTextureToCanvas(gl, texture);
+        drawTextureToCanvas(gl, texture!);
     };
     image.src = imageSrc;
 }

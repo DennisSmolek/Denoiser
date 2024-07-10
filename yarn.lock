@@ -3156,9 +3156,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"denoise@workspace:examples/denoise":
+"denoise@workspace:examples/r3f-basic":
   version: 0.0.0-use.local
-  resolution: "denoise@workspace:examples/denoise"
+  resolution: "denoise@workspace:examples/r3f-basic"
   dependencies:
     "@types/react": "npm:^18.3.3"
     "@types/react-dom": "npm:^18.3.0"
@@ -3245,9 +3245,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"denoiser-examples-Pathtracer@workspace:examples/pathtracer":
+"denoiser-examples-Pathtracer@workspace:examples/r3f-dev":
   version: 0.0.0-use.local
-  resolution: "denoiser-examples-Pathtracer@workspace:examples/pathtracer"
+  resolution: "denoiser-examples-Pathtracer@workspace:examples/r3f-dev"
   dependencies:
     "@react-three/drei": "npm:^9.108.1"
     "@react-three/fiber": "npm:^8.16.8"

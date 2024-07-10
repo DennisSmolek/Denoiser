@@ -23,9 +23,9 @@ console.log("first draw");
 if (context) loadImageAndRender("./noisey.jpg", context);
 
 //* Denoising ===========================================
-
+let denoiser: Denoiser;
 setTimeout(() => {
-	const denoiser = new Denoiser("webgl", outputCanvas);
+	denoiser = new Denoiser("webgl", outputCanvas);
 	console.log("second draw");
 	if (context) loadImageAndRender("./noisey.jpg", context);
 	denoiser.debugging = true; // uncomment if you want detailed logs

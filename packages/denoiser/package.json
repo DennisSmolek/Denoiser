@@ -8,15 +8,15 @@
         "denoiser",
         "unet"
     ],
-    "version": "0.0.1",
+    "version": "0.0.2",
     "author": "Dennis Smolek",
     "contributors": [
         "Dennis Smolek"
     ],
     "license": "MIT",
-    "homepage": "https://github.com/dennissmolek/OIDNFlow.js",
+    "homepage": "https://github.com/dennissmolek/denoiser",
     "bugs": {
-        "url": "https://github.com/dennissmolek/OIDNFlow.js/issues"
+        "url": "https://github.com/dennissmolek/denoiser/issues"
     },
     "main": "./dist/index.cjs",
     "module": "./dist/index.mjs",
@@ -54,7 +54,6 @@
     },
     "dependencies": {
         "@tensorflow/tfjs": "^4.20.0",
-        "@tensorflow/tfjs-backend-webgpu": "^4.20.0",
-        "@tensorflow/tfjs-vis": "^1.5.1"
+        "@tensorflow/tfjs-backend-webgpu": "^4.20.0"
     }
 }
