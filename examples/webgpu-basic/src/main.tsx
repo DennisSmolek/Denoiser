@@ -8,7 +8,7 @@ let denoiser: Denoiser;
 // get the canvas for output
 const outputCanvas = document.getElementById("output") as HTMLCanvasElement;
 // debugging canvas, you wont need this but it helps if you break stuff
-const rawOutputCanvas = document.getElementById("rawOutput");
+//const rawOutputCanvas = document.getElementById("rawOutput");
 // create the renderer
 const renderer = new WebGPURenderer(outputCanvas);
 renderer.onReady(() => {
@@ -21,7 +21,7 @@ renderer.onReady(() => {
 
 //* Denoising ===========================================
 // Get the three inputs
-const noisey = document.getElementById("noisey") as HTMLImageElement;
+//const noisey = document.getElementById("noisey") as HTMLImageElement;
 const albedo = document.getElementById("albedo") as HTMLImageElement;
 const normal = document.getElementById("normal") as HTMLImageElement;
 

@@ -28,7 +28,8 @@ export class WebGPURenderer {
         renderToCanvas(this.device!, this.canvas, buffer);
     }
     renderTestImage(imageSource = "./noisey.jpg") {
-        renderToCanvas(this.device!, this.canvas, null, imageSource);
+        //@ts-ignore
+        renderToCanvas(this.device!, this.canvas, undefined, imageSource);
     }
 
     getImageBuffer(imageSource: string) {
@@ -145,10 +146,11 @@ async function createGPUBufferFromImage(device: GPUDevice, imageSrc: string) {
     const ctx = offscreenCanvas.getContext('2d');
 
     // Draw the image, scaling it to fit 1280x720
-    ctx.drawImage(img, 0, 0, 1280, 720);
+    //@ts-ignore
+    ctx!.drawImage(img, 0, 0, 1280, 720);
 
     // Get the image data
-    const imageData = ctx.getImageData(0, 0, 1280, 720);
+    const imageData = ctx!.getImageData(0, 0, 1280, 720);
 
     // Create a Float32Array to hold the normalized pixel data
     const floatArray = new Float32Array(1280 * 720 * 4);
@@ -192,7 +194,7 @@ export async function renderToCanvas(device: GPUDevice, canvas: HTMLCanvasElemen
 
     function render() {
         const commandEncoder = device.createCommandEncoder();
-        const textureView = context.getCurrentTexture().createView();
+        const textureView = context!.getCurrentTexture().createView();
 
         const renderPass = commandEncoder.beginRenderPass({
             colorAttachments: [{
@@ -215,7 +217,8 @@ export async function renderToCanvas(device: GPUDevice, canvas: HTMLCanvasElemen
 }
 async function processToBuffer(device: GPUDevice, inputBuffer: GPUBuffer | null, imageSource: string | null): Promise<GPUBuffer> {
     // Initialize WebGPU (we don't actually need a canvas for this operation)
-    const { pipeline } = await initWebGPU(device, document.createElement('canvas'));
+    //    const { pipeline } = await initWebGPU(device, document.createElement('canvas'));
+    await initWebGPU(device, document.createElement('canvas'));
 
     // Determine the input: either use the provided buffer or create one from the image
     let sourceBuffer: GPUBuffer;
