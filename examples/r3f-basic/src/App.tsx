@@ -13,7 +13,7 @@ function App() {
 	useEffect(() => {
 		if (hasMounted.current) return;
 		hasMounted.current = true;
-		denoiser.current = new Denoiser();
+		denoiser.current = new Denoiser("webgl");
 		denoiser.current.debugging = true;
 		//	denoiser.current.usePassThrough = true;
 

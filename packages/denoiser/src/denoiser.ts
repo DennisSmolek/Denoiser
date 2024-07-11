@@ -23,6 +23,7 @@ type DenoiserProps = {
     height: number;
     width: number;
     cleanAux: boolean;
+    dirtyAux: boolean;
     directionals: boolean;
     useColor: boolean;
     useAlbedo: boolean;
@@ -48,6 +49,7 @@ export class Denoiser {
         height: 0,
         width: 0,
         cleanAux: false,
+        dirtyAux: false,
         directionals: false,
         useColor: true,
         useAlbedo: false,
@@ -68,7 +70,8 @@ export class Denoiser {
     usePassThrough = false;
 
     //* Tiling ---
-    useTiling = false;
+    private _useTiling = false;
+    private _tilingUserBlocked = false
     tileStride = 16;
     tileSize = 256;
 
@@ -83,11 +86,12 @@ export class Denoiser {
     private backendListeners: Set<ListenerCalback> = new Set();
     // Model Props ---
     private unet!: UNet;
+    private tiler?: GPUTensorTiler;
     private inputTensors: Map<'color' | 'albedo' | 'normal', tf.Tensor3D> = new Map();
     private inputAlpha?: tf.Tensor3D;
     private oldOutputTensor?: tf.Tensor3D;
 
-    private tiler?: GPUTensorTiler;
+
 
     // WebGL ---
     private webglProgram?: WebGLProgram;
@@ -98,7 +102,7 @@ export class Denoiser {
     private activeTensorMap!: TensorMap;
     private isDirty = true;
 
-    constructor(preferedBackend = 'webgpu', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
+    constructor(preferedBackend = 'webgl', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
         this.weights = Weights.getInstance();
         console.log('%c Denoiser initialized..', 'background: #d66b00; color: white;');
         this.setupBackend(preferedBackend, canvasOrDevice);
@@ -137,6 +141,14 @@ export class Denoiser {
         this.isDirty = true;
         this.props.hdr = hdr;
     }
+    get dirtyAux() {
+        return this.props.dirtyAux;
+    }
+    set dirtyAux(dirtyAux: boolean) {
+        this.isDirty = true;
+        if (dirtyAux && this.props.cleanAux) this.props.cleanAux = false;
+        this.props.dirtyAux = dirtyAux;
+    }
 
     get backendReady() {
         return this.backendLoaded;
@@ -149,6 +161,15 @@ export class Denoiser {
             callback(this.backend);
         });
     }
+    get useTiling() {
+        return this._useTiling;
+    }
+    set useTiling(useTiling: boolean) {
+        this._tilingUserBlocked = !useTiling;
+        this._useTiling = useTiling;
+    }
+
+    // Weights --
 
     set weightsPath(path: string) {
         this.weights.path = path;
@@ -392,13 +413,13 @@ export class Denoiser {
     private async executeModel() {
         let startTime: number;
         if (this.debugging) console.log('%c Denoiser: Denoising...', 'background: blue; color: white;');
-        // if we need to rebuild the model
-        if (this.isDirty) await this.build();
-
         if (this.debugging) startTime = performance.now();
 
         // process and send the input to the model
         const inputTensor = await this.handleModelInput();
+
+        // if we need to rebuild the model
+        if (this.isDirty) await this.build();
 
         // Execute model with tiling or standard
         const result = this.useTiling ? await this.tiler!.processLargeTensor(inputTensor)
@@ -435,6 +456,13 @@ export class Denoiser {
         //if (!color && !albedo && !normal) throw new Error('Denoiser must have an input set before execution.');
         if (!color) throw new Error('Denoiser must have an input set before execution.');
 
+        // if we have extra images we need to use tiling
+        if (!this._tilingUserBlocked && (albedo || normal)) this.useTiling = true;
+
+        // if we have both aux images and not blocked by the user, set cleanAux to true
+        if (albedo && normal && !this.props.dirtyAux) this.props.cleanAux = true;
+
+        // concat the images
         return tf.tidy(() => {
             let concatenatedImage: tf.Tensor3D;
             if (albedo) {
