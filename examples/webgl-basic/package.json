@@ -1,5 +1,5 @@
 {
-  "name": "denoiser-example-full",
+  "name": "denoiser-example-webgl-basic",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -16,8 +16,11 @@
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.7",
+    "rollup-plugin-copy": "^3.5.0",
     "typescript": "^5.2.2",
-    "vite": "^5.3.1"
+    "vite": "^5.3.1",
+    "vite-plugin-copy": "^0.1.6",
+    "vite-plugin-static-copy": "^1.0.6"
   },
   "dependencies": {
     "denoiser": "^0.0.3"

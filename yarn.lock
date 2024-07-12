@@ -2761,7 +2761,7 @@ __metadata:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
     "@vitejs/plugin-react": "npm:^4.3.1"
-    denoiser: "workspace:^"
+    denoiser: "npm:^0.0.3"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
     eslint-plugin-react-refresh: "npm:^0.4.7"
@@ -2778,23 +2778,7 @@ __metadata:
   dependencies:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
-    denoiser: "workspace:^"
-    eslint: "npm:^8.57.0"
-    eslint-plugin-react-hooks: "npm:^4.6.2"
-    eslint-plugin-react-refresh: "npm:^0.4.7"
-    typescript: "npm:^5.2.2"
-    vite: "npm:^5.3.1"
-  languageName: unknown
-  linkType: soft
-
-"denoiser-example-full@workspace:examples/webgl-basic":
-  version: 0.0.0-use.local
-  resolution: "denoiser-example-full@workspace:examples/webgl-basic"
-  dependencies:
-    "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
-    "@typescript-eslint/parser": "npm:^7.13.1"
-    "@vitejs/plugin-react": "npm:^4.3.1"
-    denoiser: "workspace:^"
+    denoiser: "npm:^0.0.3"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
     eslint-plugin-react-refresh: "npm:^0.4.7"
@@ -2811,13 +2795,32 @@ __metadata:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
     "@vitejs/plugin-react": "npm:^4.3.1"
-    denoiser: "workspace:^"
+    denoiser: "npm:^0.0.3"
     dropzone: "npm:^6.0.0-beta.2"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
     eslint-plugin-react-refresh: "npm:^0.4.7"
     typescript: "npm:^5.2.2"
     vite: "npm:^5.3.1"
+  languageName: unknown
+  linkType: soft
+
+"denoiser-example-webgl-basic@workspace:examples/webgl-basic":
+  version: 0.0.0-use.local
+  resolution: "denoiser-example-webgl-basic@workspace:examples/webgl-basic"
+  dependencies:
+    "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
+    "@typescript-eslint/parser": "npm:^7.13.1"
+    "@vitejs/plugin-react": "npm:^4.3.1"
+    denoiser: "npm:^0.0.3"
+    eslint: "npm:^8.57.0"
+    eslint-plugin-react-hooks: "npm:^4.6.2"
+    eslint-plugin-react-refresh: "npm:^0.4.7"
+    rollup-plugin-copy: "npm:^3.5.0"
+    typescript: "npm:^5.2.2"
+    vite: "npm:^5.3.1"
+    vite-plugin-copy: "npm:^0.1.6"
+    vite-plugin-static-copy: "npm:^1.0.6"
   languageName: unknown
   linkType: soft
 
@@ -2828,7 +2831,7 @@ __metadata:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
     "@vitejs/plugin-react": "npm:^4.3.1"
-    denoiser: "workspace:^"
+    denoiser: "npm:^0.0.3"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
     eslint-plugin-react-refresh: "npm:^0.4.7"
@@ -2864,13 +2867,34 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"denoiser-react@workspace:packages/denoiser-react":
+  version: 0.0.0-use.local
+  resolution: "denoiser-react@workspace:packages/denoiser-react"
+  dependencies:
+    "@rollup/plugin-commonjs": "npm:^25.0.7"
+    "@rollup/plugin-node-resolve": "npm:^15.0.1"
+    "@rollup/plugin-typescript": "npm:^11.1.6"
+    "@tensorflow/tfjs": "npm:^4.20.0"
+    "@tensorflow/tfjs-backend-webgpu": "npm:^4.20.0"
+    "@typescript-eslint/eslint-plugin": "npm:^7.7.1"
+    "@typescript-eslint/parser": "npm:^7.5.0"
+    eslint: "npm:^9.0.0"
+    prettier: "npm:^3.2.5"
+    rollup: "npm:^4.14.0"
+    rollup-plugin-copy: "npm:^3.5.0"
+    rollup-plugin-filesize: "npm:^10.0.0"
+    tslib: "npm:^2.6.3"
+    typescript: "npm:^5.5.2"
+  languageName: unknown
+  linkType: soft
+
 "denoiser-root@workspace:.":
   version: 0.0.0-use.local
   resolution: "denoiser-root@workspace:."
   languageName: unknown
   linkType: soft
 
-"denoiser@npm:^0.0.3, denoiser@workspace:^, denoiser@workspace:packages/denoiser":
+"denoiser@npm:^0.0.3, denoiser@workspace:packages/denoiser":
   version: 0.0.0-use.local
   resolution: "denoiser@workspace:packages/denoiser"
   dependencies:

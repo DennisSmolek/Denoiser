@@ -91,8 +91,6 @@ export class Denoiser {
     private inputAlpha?: tf.Tensor3D;
     private oldOutputTensor?: tf.Tensor3D;
 
-
-
     // WebGL ---
     private webglProgram?: WebGLProgram;
     private webglState?: any;
@@ -236,16 +234,14 @@ export class Denoiser {
             // we have to make sure all the kernels are registered
             kernels = tf.getKernelsForBackend('webgl');
             for (const kernelConfig of kernels) {
-                const newKernelConfig = { ...kernelConfig, backendName: 'oidnflow-webgl' };
+                const newKernelConfig = { ...kernelConfig, backendName: 'denoiser-webgl' };
                 tf.registerKernel(newKernelConfig);
             }
             const customBackend = new tf.MathBackendWebGL(canvasOrDevice as HTMLCanvasElement);
-            console.log('pre register backend')
-            await new Promise(resolve => setTimeout(resolve, 3000));
             tf.registerBackend('denoiser-webgl', () => customBackend);
-            console.log('backend registered')
         }
         await tf.setBackend('denoiser-webgl');
+        await tf.ready();
 
         //@ts-ignore
         this.gl = tf.engine().findBackend('denoiser-webgl').gpgpu.gl;
@@ -339,7 +335,7 @@ export class Denoiser {
         //* Tiling
         if (this.useTiling) {
             this.tiler = new GPUTensorTiler(model, this.tileSize || 256)
-            console.log(`Tiler Created`);
+            console.log('%c Denoiser: Using Tiling Output', 'background: green; color: white;');
         }
 
         if (this.debugging) {
@@ -356,7 +352,7 @@ export class Denoiser {
         let tensorMapLabel = this.props.filterType;
         tensorMapLabel += this.props.hdr ? '_hdr' : '_ldr';
         // if you use cleanAux you MUST provide both albedo and normal
-        if (this.props.cleanAux) tensorMapLabel += '_calb_crnm';
+        if (this.props.cleanAux) tensorMapLabel += '_calb_cnrm';
         else {
             tensorMapLabel += this.props.useAlbedo ? '_alb' : '';
             tensorMapLabel += this.props.useNormal ? '_nrm' : '';
@@ -379,6 +375,7 @@ export class Denoiser {
     //* Execute the denoiser ------------------------------
     // execute with image data inputs
     async execute(colorInput?: ModelInput, albedoInput?: ModelInput, normalInput?: ModelInput) {
+        if (this.gl) this.restoreWebGLState();
         if (colorInput || albedoInput || normalInput) switch (this.inputMode) {
             case 'webgl':
                 if (!this.height || !this.width) throw new Error('Denoiser: Height and Width must be set when executing with webGL input.');
@@ -496,7 +493,7 @@ export class Denoiser {
     }
 
     // handle returns and callbacks
-    private handleReturn(outputTensor: tf.Tensor3D) {
+    private async handleReturn(outputTensor: tf.Tensor3D) {
         // if we are dumping to canvas
         if (this.outputToCanvas && this.canvas)
             tf.browser.toPixels(outputTensor, this.canvas);
@@ -508,9 +505,12 @@ export class Denoiser {
 
         // output for direct execution
         // only fire if we have no listeners
+        let toReturn: any;
         if (this.listeners.size === 0)
-            return this.handleCallback(outputTensor, this.outputMode);
-        return false;
+            toReturn = await this.handleCallback(outputTensor, this.outputMode);
+
+        if (this.gl) this.saveWebGLState();
+        return toReturn;
     }
 
     private async handleCallback(outputTensor: tf.Tensor3D, returnType: string, callback?: ListenerCalback) {
@@ -523,9 +523,13 @@ export class Denoiser {
                 break;
 
             case 'webgl':
-                data = outputTensor.dataToGPU();
+                // WebGL too must have the alpha channel
+                if (!this.inputAlpha) data = concatenateAlpha3D(outputTensor).dataToGPU();
+                else data = outputTensor.dataToGPU({ customTexShape: [this.height, this.width] });
                 if (!data.texture) throw new Error('Denoiser: Could not convert to webGL texture');
                 toReturn = data.texture;
+                // todo: this might be dangerous
+                data.tensorRef.dispose();
                 break;
 
             case 'webgpu':
@@ -659,9 +663,22 @@ export class Denoiser {
     }
 
     // for a webGL texture create and set it
-    setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, height: number, width: number, channels = 4) {
-        const tensor = tf.tensor({ texture, height, width, channels: 'RGB' }, [height, width, channels], 'float32') as tf.Tensor3D;
-        this.setInputTensor(name, tensor);
+    setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, height?: number, width?: number, channels = 4) {
+        // if passed, overwrite the height and width of the class
+        if (name === 'color' && (height !== this.height || width !== this.width)) {
+            if (height) this.height = height;
+            if (width) this.width = width;
+        }
+        const baseTensor = tf.tensor({ texture, height: this.height, width: this.width, channels: 'RGBA' }, [this.height, this.width, channels], 'float32') as tf.Tensor3D;
+        // if the channels is 4 we need to strip the alpha channel
+        if (channels === 4) {
+            // split the alpha channel from the rgb data (NOTE: destroys the baseTensor)
+            const { rgb, alpha } = splitRGBA3D(baseTensor);
+            this.setInputTensor(name, rgb);
+            this.inputAlpha = alpha;
+            // we only care about the alpha of the color input
+            if (name === 'color') this.inputAlpha = alpha;
+        } else this.setInputTensor(name, baseTensor);
     }
 
     // this is mostly an internal debug thing but is super helpful
