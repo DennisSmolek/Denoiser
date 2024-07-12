@@ -7,10 +7,10 @@ import type { TensorMap } from './tza';
 import { UNet } from './unet';
 import { splitRGBA3D, concatenateAlpha3D } from './utils';
 import { GPUTensorTiler } from './improvedTileHandling';
-
-import '@tensorflow/tfjs-backend-webgpu';
 import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
+import { WebGLStateManager } from './webglStateManager';
 
+//* Types ----------------------------------------------
 type ImgInput = tf.PixelData | ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | ImageBitmap;
 
 type ListenerCalback = (data: any) => void;
@@ -33,7 +33,7 @@ type DenoiserProps = {
 export class Denoiser {
     // counter to how many times the model was built
     timesGenerated = 0;
-    gl?: WebGL2RenderingContext;
+    private _gl?: WebGL2RenderingContext;
     device?: GPUDevice;
     //backend?: tf.MathBackendWebGL | WebGPUBackend | tf.MathBackendCPU;
     backend?: tf.KernelBackend
@@ -79,10 +79,6 @@ export class Denoiser {
 
     // listeners for execution callbacks
     private listeners: Map<ListenerCalback, string> = new Map();
-    // This holds listeners for when we save/restore state
-    //private listenersRemaining = 0;
-
-    // probably going to remove this
     private backendListeners: Set<ListenerCalback> = new Set();
     // Model Props ---
     private unet!: UNet;
@@ -92,8 +88,7 @@ export class Denoiser {
     private oldOutputTensor?: tf.Tensor3D;
 
     // WebGL ---
-    private webglProgram?: WebGLProgram;
-    private webglState?: any;
+    private webglStateManager?: WebGLStateManager;
 
     // holder for weights instance where we get tensorMaps
     private weights: Weights;
@@ -147,6 +142,7 @@ export class Denoiser {
         if (dirtyAux && this.props.cleanAux) this.props.cleanAux = false;
         this.props.dirtyAux = dirtyAux;
     }
+    // Backend---
 
     get backendReady() {
         return this.backendLoaded;
@@ -159,6 +155,16 @@ export class Denoiser {
             callback(this.backend);
         });
     }
+
+    get gl(): WebGL2RenderingContext | undefined {
+        return this._gl;
+    }
+    set gl(gl: WebGL2RenderingContext) {
+        if (!gl) return;
+        this._gl = gl;
+        this.webglStateManager = new WebGLStateManager(gl);
+    }
+
     get useTiling() {
         return this._useTiling;
     }
@@ -248,65 +254,9 @@ export class Denoiser {
         console.log('%c Denoiser: Backend set to custom webgl', 'background: orange; color: white;');
         this.usingCustomBackend = true;
         this.backendReady = true;
-        //this.saveWebGLState();
+        this.webglStateManager?.saveState();
 
         return this.backend;
-    }
-    restoreWebGLState() {
-        if (!this.gl || !this.webglProgram || !this.webglState) return;
-        const gl = this.gl;
-        const state = this.webglState;
-        if (state !== null) {
-            gl.bindVertexArray(state.VAO);
-            gl.activeTexture(state.activeTexture);
-            gl.bindTexture(gl.TEXTURE_2D, state.textureBinding);
-            gl.useProgram(state.program);
-            gl.bindRenderbuffer(gl.RENDERBUFFER, state.renderbufferBinding);
-            gl.bindFramebuffer(gl.FRAMEBUFFER, state.framebufferBinding);
-            //@ts-ignore
-            gl.viewport(...state.viewport);
-
-            if (state.scissorTest) gl.enable(gl.SCISSOR_TEST);
-            else gl.disable(gl.SCISSOR_TEST);
-
-            if (state.stencilTest) gl.enable(gl.STENCIL_TEST);
-            else gl.disable(gl.STENCIL_TEST);
-
-            if (state.depthTest) gl.enable(gl.DEPTH_TEST);
-            else gl.disable(gl.DEPTH_TEST);
-
-            if (state.blend) gl.enable(gl.BLEND);
-            else gl.disable(gl.BLEND);
-
-            if (state.cullFace) gl.enable(gl.CULL_FACE);
-            else gl.disable(gl.CULL_FACE);
-        }
-        // restore the webgl state
-        this.gl.useProgram(this.webglProgram);
-        if (this.debugging) console.log('WebGL State Restored', this.webglProgram, this.gl, this.webglState);
-    }
-
-    saveWebGLState() {
-        if (!this.gl) return;
-        const gl = this.gl;
-        this.webglProgram = this.gl.getParameter(this.gl.CURRENT_PROGRAM);
-        // state from Cody Bennett
-        const state = {
-            VAO: gl.getParameter(gl.VERTEX_ARRAY_BINDING),
-            cullFace: gl.getParameter(gl.CULL_FACE),
-            blend: gl.getParameter(gl.BLEND),
-            depthTest: gl.getParameter(gl.DEPTH_TEST),
-            stencilTest: gl.getParameter(gl.STENCIL_TEST),
-            scissorTest: gl.getParameter(gl.SCISSOR_TEST),
-            viewport: gl.getParameter(gl.VIEWPORT),
-            framebufferBinding: gl.getParameter(gl.FRAMEBUFFER_BINDING),
-            renderbufferBinding: gl.getParameter(gl.RENDERBUFFER_BINDING),
-            program: gl.getParameter(gl.CURRENT_PROGRAM),
-            activeTexture: gl.getParameter(gl.ACTIVE_TEXTURE),
-            textureBinding: gl.getParameter(gl.TEXTURE_BINDING_2D),
-        };
-        this.webglState = state;
-        if (this.debugging) console.log('WebGL State Saved', this.webglProgram, this.gl);
     }
 
     //* Build the unet using props ------------------------
@@ -375,7 +325,7 @@ export class Denoiser {
     //* Execute the denoiser ------------------------------
     // execute with image data inputs
     async execute(colorInput?: ModelInput, albedoInput?: ModelInput, normalInput?: ModelInput) {
-        if (this.gl) this.restoreWebGLState();
+        if (this.webglStateManager) this.webglStateManager.restoreState();
         if (colorInput || albedoInput || normalInput) switch (this.inputMode) {
             case 'webgl':
                 if (!this.height || !this.width) throw new Error('Denoiser: Height and Width must be set when executing with webGL input.');
@@ -509,7 +459,7 @@ export class Denoiser {
         if (this.listeners.size === 0)
             toReturn = await this.handleCallback(outputTensor, this.outputMode);
 
-        if (this.gl) this.saveWebGLState();
+        if (this.gl) this.webglStateManager?.saveState();
         return toReturn;
     }
 

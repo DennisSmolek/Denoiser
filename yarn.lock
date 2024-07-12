@@ -2787,6 +2787,25 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"denoiser-example-threejs-webgl@workspace:examples/threejs-webgl":
+  version: 0.0.0-use.local
+  resolution: "denoiser-example-threejs-webgl@workspace:examples/threejs-webgl"
+  dependencies:
+    "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
+    "@typescript-eslint/parser": "npm:^7.13.1"
+    "@vitejs/plugin-react": "npm:^4.3.1"
+    denoiser: "npm:^0.0.3"
+    eslint: "npm:^8.57.0"
+    eslint-plugin-react-hooks: "npm:^4.6.2"
+    eslint-plugin-react-refresh: "npm:^0.4.7"
+    rollup-plugin-copy: "npm:^3.5.0"
+    typescript: "npm:^5.2.2"
+    vite: "npm:^5.3.1"
+    vite-plugin-copy: "npm:^0.1.6"
+    vite-plugin-static-copy: "npm:^1.0.6"
+  languageName: unknown
+  linkType: soft
+
 "denoiser-example-upload@workspace:examples/upload":
   version: 0.0.0-use.local
   resolution: "denoiser-example-upload@workspace:examples/upload"
