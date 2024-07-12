@@ -1,6 +1,6 @@
 import { Denoiser } from "denoiser";
 import "./index.css";
-import { WebGLRenderer } from "./WebGLDemo";
+import { WebGLRenderer } from "./webGLDemo";
 
 let denoiser: Denoiser;
 
