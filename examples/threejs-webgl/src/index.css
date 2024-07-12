@@ -7,11 +7,11 @@ html, body {
 
 a {
   font-weight: 500;
-  color: #ae19c2;
+  color: #0f704e;
   text-decoration: inherit;
 }
 a:hover {
-  color: #414aee;
+  color: #2ddea0;
 }
 
 h1 {
@@ -31,7 +31,7 @@ button {
   transition: border-color 0.25s;
 }
 button:hover {
-  border-color: #646cff;
+  border-color: #2ddea0;
 }
 button:focus,
 button:focus-visible {
@@ -76,8 +76,11 @@ header {
   margin-left: 20px;
 }
 h2 {
-  margin-bottom: 0;
-  color:#105184
+  margin: 0;
+  color:#0f704e
+}
+span svg {
+  max-height: 140px;
 }
 
 main {

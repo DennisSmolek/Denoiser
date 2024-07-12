@@ -59,9 +59,11 @@ export class Denoiser {
     // this allows us to bypass everything and pass a tensor directly to the model
     directInputTensor?: tf.Tensor3D;
 
+    //* Cofig props ---
     // how we want input and output to be handled
     inputMode: 'imgData' | 'webgl' | 'webgpu' | 'tensor' = 'imgData';
     outputMode: 'imgData' | 'webgl' | 'webgpu' | 'tensor' | 'float32' = 'imgData';
+    flipOutputY = false;
 
     //* Debug Props ---
     canvas?: HTMLCanvasElement;
@@ -430,7 +432,7 @@ export class Denoiser {
             // With float32 we had strange 1.0000001 values this limits to expected outputs
             output = tf.clipByValue(output, 0, 1);
             // flip the image vertically
-            // output = tf.reverse(output, [0]);
+            if (this.flipOutputY) output = tf.reverse(output, [0]);
             // check the datatype and shape of the outputImage
             // if (this.debugging) console.log('Output Image shape:', output.shape, 'dtype:', output.dtype);
             if (this.inputAlpha) output = concatenateAlpha3D(output, this.inputAlpha);
@@ -613,19 +615,24 @@ export class Denoiser {
     }
 
     // for a webGL texture create and set it
-    setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, height?: number, width?: number, channels = 4) {
+    setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, height?: number, width?: number, channels = 4, flipY = false) {
         // if passed, overwrite the height and width of the class
         if (name === 'color' && (height !== this.height || width !== this.width)) {
             if (height) this.height = height;
             if (width) this.width = width;
         }
-        const baseTensor = tf.tensor({ texture, height: this.height, width: this.width, channels: 'RGBA' }, [this.height, this.width, channels], 'float32') as tf.Tensor3D;
+        const baseTensor = tf.tidy(() => {
+            const standard = tf.tensor({ texture, height: this.height, width: this.width, channels: 'RGBA' }, [this.height, this.width, channels], 'float32') as tf.Tensor3D;
+            //if flipping
+            if (flipY) return tf.reverse(standard, [0]);
+            return standard;
+        });
+
         // if the channels is 4 we need to strip the alpha channel
         if (channels === 4) {
             // split the alpha channel from the rgb data (NOTE: destroys the baseTensor)
             const { rgb, alpha } = splitRGBA3D(baseTensor);
             this.setInputTensor(name, rgb);
-            this.inputAlpha = alpha;
             // we only care about the alpha of the color input
             if (name === 'color') this.inputAlpha = alpha;
         } else this.setInputTensor(name, baseTensor);

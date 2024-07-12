@@ -12,10 +12,7 @@ export const rawOutputCanvas = document.getElementById("rawOutput");
 // create the renderer
 const renderer = new Renderer(outputCanvas!);
 renderer.onReady(() => {
-	//renderer.demonstrateWorkflow("./noisey.jpg");
-
 	denoiser = new Denoiser("webgl", outputCanvas);
-	denoiser.debugging = true;
 	denoiser.onBackendReady(() => setupDenoising());
 });
 
@@ -31,19 +28,20 @@ function setupDenoising() {
 	// if something isn't looking right, this will dump the outputBuffer to the canvas
 	//denoiser.setCanvas(rawOutputCanvas as HTMLCanvasElement);
 	//denoiser.usePassThrough = true; // bypass denoising model
-
 	// tell the renderer to test with this image
 	//renderer.demonstrateWorkflow("./noisey.jpg");
 
+	// With threejs we need to flip the outputs
+	denoiser.flipOutputY = true;
+
 	// use tiling with webGPU and larger images. (May become standard)
-	denoiser.useTiling = true;
 	// activate the button
 	button.disabled = false;
 
 	// add an execution listener
 	denoiser.onExecute((outputTexture) => {
 		console.log("Denoising complete", outputTexture);
-		renderer.mergeTextureAndTargetThenRender(outputTexture);
+		renderer.mergeThenRender(outputTexture);
 		// this tells the system we want a webGL texture
 	}, "webgl");
 }
@@ -55,17 +53,16 @@ async function doDenoise() {
 	// render a image to texture
 	const threeTexture = await renderer.loadTexture("./noisey.jpg");
 	const noiseyTexture = await renderer.renderToWebGLTexture(threeTexture);
-	console.log("noisey texture", noiseyTexture);
 
-	denoiser.setInputTexture("color", noiseyTexture, 720, 1280);
+	denoiser.setInputTexture("color", noiseyTexture, 720, 1280, 4, true);
 	// pass null as we set the buffer manually
-	//denoiser.execute(null, albedo, normal);
+	denoiser.execute(null, albedo, normal);
 
 	// different levels of execution
 	//await denoiser.execute(noisey, albedo, normal);
 	//await denoiser.execute(noisey, albedo);
 	//await denoiser.execute(noisey);
-	denoiser.execute();
+	//denoiser.execute();
 
 	updateTimeDisplay(startTime);
 }
@@ -75,7 +72,7 @@ const button = document.getElementById("execute-button") as HTMLButtonElement;
 button.addEventListener("click", doDenoise);
 
 //* WebGL Logging Utils ===========================================
-function logWebGLState(gl) {
+function logWebGLState(gl: WebGL2RenderingContext) {
 	console.log("Current Program:", gl.getParameter(gl.CURRENT_PROGRAM));
 	console.log("Active Texture:", gl.getParameter(gl.ACTIVE_TEXTURE));
 	console.log("Viewport:", gl.getParameter(gl.VIEWPORT));
@@ -88,24 +85,24 @@ function logWebGLState(gl) {
 	console.log("Blend equation RGB:", gl.getParameter(gl.BLEND_EQUATION_RGB));
 }
 
-export function logProgram(gl) {
+export function logProgram(gl: WebGL2RenderingContext) {
 	console.log("Current Shader Program:", gl.getParameter(gl.CURRENT_PROGRAM));
 }
-function logFrameBuffers(gl) {
+function logFrameBuffers(gl: WebGL2RenderingContext) {
 	console.log("Texture Binding:", gl.getParameter(gl.TEXTURE_BINDING_2D));
 	console.log("Framebuffer Binding:", gl.getParameter(gl.FRAMEBUFFER_BINDING));
 }
-function logError(gl) {
+function logError(gl: WebGL2RenderingContext) {
 	console.log("WebGL Error:", gl.getError());
 }
 
-export function logViewport(gl) {
+export function logViewport(gl: WebGL2RenderingContext) {
 	console.log("Viewport:", gl.getParameter(gl.VIEWPORT));
 	console.log("Scissor Test Enabled:", gl.getParameter(gl.SCISSOR_TEST));
 	console.log("Scissor Box:", gl.getParameter(gl.SCISSOR_BOX));
 }
 
-function logUnpack(gl) {
+function logUnpack(gl: WebGL2RenderingContext) {
 	console.log("UNPACK_FLIP_Y_WEBGL:", gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL));
 	console.log(
 		"UNPACK_PREMULTIPLY_ALPHA_WEBGL:",
@@ -117,7 +114,7 @@ function logUnpack(gl) {
 	);
 }
 
-export function logEverything(gl) {
+export function logEverything(gl: WebGL2RenderingContext) {
 	logWebGLState(gl);
 	logFrameBuffers(gl);
 	logUnpack(gl);
