@@ -7,7 +7,7 @@ html, body {
 
 a {
   font-weight: 500;
-  color: #0f704e;
+  color: #1e427b;
   text-decoration: inherit;
 }
 a:hover {
@@ -78,10 +78,14 @@ header {
 }
 h2 {
   margin: 0;
-  color:#0f704e
+  color: #131a8f;
+  margin-left: 73px;
+  font-weight: bold;
 }
 span svg {
   max-height: 140px;
+  position: absolute;
+  top: 0;
 }
 
 main {

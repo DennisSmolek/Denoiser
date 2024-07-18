@@ -24,6 +24,7 @@
     "vite-plugin-static-copy": "^1.0.6"
   },
   "dependencies": {
+    "@tweakpane/plugin-essentials": "^0.2.1",
     "denoiser": "workspace:^",
     "three-gpu-pathtracer": "^0.0.23",
     "tweakpane": "^4.0.4"

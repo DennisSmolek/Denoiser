@@ -42,7 +42,7 @@ qualityToggle.addEventListener("change", toggleQuality);
 const qualityHolder = document.getElementById("quality") as HTMLDivElement;
 function toggleQuality() {
 	const quality = qualityToggle.checked ? "balanced" : "fast";
-	//denoiser.quality = quality;
+	renderer.denoiser.quality = quality;
 	console.log("Quality set to", quality);
 	qualityHolder.className = quality;
 }

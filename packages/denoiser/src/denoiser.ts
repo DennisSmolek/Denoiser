@@ -127,7 +127,6 @@ export class Denoiser {
     }
     set backendReady(isReady: boolean) {
         this.backendLoaded = isReady;
-        // biome-ignore lint/complexity/noForEach: <explanation>
         if (isReady) this.backendListeners.forEach((callback) => callback(this.backend));
     }
 
@@ -206,16 +205,16 @@ export class Denoiser {
         if (colorInput || albedoInput || normalInput) switch (this.inputMode) {
             case 'webgl':
                 if (!this.height || !this.width) throw new Error('Denoiser: Height and Width must be set when executing with webGL input.');
-                if (colorInput) this.setInputTexture('color', colorInput as WebGLTexture, this.height, this.width);
-                if (albedoInput) this.setInputTexture('albedo', albedoInput as WebGLTexture, this.height, this.width);
-                if (normalInput) this.setInputTexture('normal', normalInput as WebGLTexture, this.height, this.width);
+                if (colorInput) this.setInputTexture('color', colorInput as WebGLTexture);
+                if (albedoInput) this.setInputTexture('albedo', albedoInput as WebGLTexture);
+                if (normalInput) this.setInputTexture('normal', normalInput as WebGLTexture);
                 break;
 
             case 'webgpu':
                 if (!this.height || !this.width) throw new Error('Denoiser: Height and Width must be set when executing with webGPU input.');
-                if (colorInput) this.setInputBuffer('color', colorInput as GPUBuffer, this.height, this.width);
-                if (albedoInput) this.setInputBuffer('albedo', albedoInput as GPUBuffer, this.height, this.width);
-                if (normalInput) this.setInputBuffer('normal', normalInput as GPUBuffer, this.height, this.width);
+                if (colorInput) this.setInputBuffer('color', colorInput as GPUBuffer);
+                if (albedoInput) this.setInputBuffer('albedo', albedoInput as GPUBuffer);
+                if (normalInput) this.setInputBuffer('normal', normalInput as GPUBuffer);
                 break;
 
             case 'tensor':
@@ -225,9 +224,9 @@ export class Denoiser {
                 break;
 
             default:
-                if (colorInput) this.setImage('color', colorInput as ImgInput);
-                if (albedoInput) this.setImage('albedo', albedoInput as ImgInput);
-                if (normalInput) this.setImage('normal', normalInput as ImgInput);
+                if (colorInput) this.setInputImage('color', colorInput as ImgInput);
+                if (albedoInput) this.setInputImage('albedo', albedoInput as ImgInput);
+                if (normalInput) this.setInputImage('normal', normalInput as ImgInput);
         }
 
         return this.executeModel();
@@ -250,7 +249,7 @@ export class Denoiser {
             : await this.unet.execute(inputTensor);
 
         // this helps us debug input/output by making the model a pure pass through
-        if (this.usePassThrough) {
+        if (this.usePassThrough && !this.props.useAlbedo) {
             // check if its totally equal
             const isEqual = tf.equal(inputTensor, result);
             console.log('Make sure model is a pass trough:');
@@ -274,9 +273,8 @@ export class Denoiser {
             tf.browser.toPixels(outputTensor, this.canvas);
 
         // handle listeners
-        this.listeners.forEach((returnType, callback) => {
-            handleCallback(this, outputTensor, returnType, callback);
-        });
+        this.listeners.forEach((returnType, callback) =>
+            handleCallback(this, outputTensor, returnType, callback));
 
         // output for direct execution, only fire if we have no listeners
         let toReturn: unknown;
@@ -354,40 +352,43 @@ export class Denoiser {
     }
 
     // for a webGPU buffer create and set it
-    setInputBuffer(name: 'color' | 'albedo' | 'normal', buffer: GPUBuffer, options: InputOptions = {}) {
+    async setInputBuffer(name: 'color' | 'albedo' | 'normal', buffer: GPUBuffer, options: InputOptions = {}) {
         if (name === 'color') adjustSize(this, options);
         const baseTensor = tf.tensor({ buffer: buffer }, [this.height, this.width, options.channels || 4], 'float32') as tf.Tensor3D;
-        handleInputTensors(this, name, baseTensor, options);
+        await handleInputTensors(this, name, baseTensor, options);
     }
 
     // for a webGL texture create and set it
-    setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, options: InputOptions = {}) {
+    async setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, options: InputOptions = {}) {
         if (name === 'color') adjustSize(this, options);
         const baseTensor = tf.tensor({ texture, height: this.height, width: this.width, channels: 'RGBA' }, [this.height, this.width, options.channels || 4], 'float32') as tf.Tensor3D;
-        handleInputTensors(this, name, baseTensor, options);
+        await handleInputTensors(this, name, baseTensor, options);
     }
 
     //* Data Input ---
-    setData(name: 'color' | 'albedo' | 'normal', data: Float32Array | Uint8Array, height: number, width: number, channels = 4) {
+    setInputData(name: 'color' | 'albedo' | 'normal', data: Float32Array | Uint8Array, options: InputOptions = {}) {
         // check if data is a float32 and reject otherwise
         if (data.constructor !== Float32Array)
             throw new Error('Invalid Input data type. Must be a Float32Array');
 
-        const baseTensor = tf.tensor3d(data, [height, width, channels])
-        if (channels === 4) {
-            // split the alpha channel from the rgb data (NOTE: destroys the baseTensor)
-            const { rgb, alpha } = splitRGBA3D(baseTensor);
-            this.setInputTensor(name, rgb);
-            this.inputAlpha = alpha;
-            // we only care about the alpha of the color input
-            if (name === 'color') this.inputAlpha = alpha;
-        } else this.setInputTensor(name, baseTensor);
+        const baseTensor = tf.tensor3d(data, [this.height, this.width, options.channels || 4])
+        handleInputTensors(this, name, baseTensor, options);
     }
 
     // this is mostly an internal debug thing but is super helpful
     setCanvas(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
         this.outputToCanvas = true;
+    }
+    // clear the input tensors and mark dirty
+    resetInputs() {
+        this.inputTensors.forEach((tensor) => tensor.dispose());
+        this.inputTensors.clear();
+        if (this.directInputTensor) this.directInputTensor.dispose();
+        this.props.useColor = false;
+        this.props.useAlbedo = false;
+        this.props.useNormal = false;
+        this.isDirty = true;
     }
 
     //* Listeners ---------------------------------------

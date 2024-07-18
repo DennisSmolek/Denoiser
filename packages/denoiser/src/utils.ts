@@ -1,7 +1,7 @@
 import * as tf from '@tensorflow/tfjs';
 
 // Function to split RGBA tensor into RGB and A tensors for Tensor3D
-export function splitRGBA3D(inputTensor: tf.Tensor3D, disposeInputs = true): { rgb: tf.Tensor3D, alpha: tf.Tensor3D } {
+export async function splitRGBA3D(inputTensor: tf.Tensor3D, disposeInputs = true): { rgb: tf.Tensor3D, alpha: tf.Tensor3D } {
     // Assuming inputTensor shape is [height, width, 4] where the last dimension is RGBA
     const rgb = tf.slice(inputTensor, [0, 0, 0], [-1, -1, 3]); // Take the first 3 channels (RGB)
     const alpha = tf.slice(inputTensor, [0, 0, 3], [-1, -1, 1]); // Take the 4th channel (Alpha)

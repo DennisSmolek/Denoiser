@@ -58,7 +58,6 @@ export async function setupBackend(denoiser: Denoiser, prefered = 'webgl', canva
         }
         const customBackend = new tf.MathBackendWebGL(canvasOrDevice as HTMLCanvasElement);
         tf.registerBackend('denoiser-webgl', () => customBackend);
-        console.log('registered kernels for custom webgl backend', kernels);
     }
     await tf.setBackend('denoiser-webgl');
     await tf.ready();
@@ -108,6 +107,7 @@ export function adjustSize(denoiser: Denoiser, options: InputOptions) {
         if (height) denoiser.height = height;
         if (width) denoiser.width = width;
     }
+    console.log('Denoiser: Adjusted size to', denoiser.width, denoiser.height);
 }
 // prepare and process input tensors
 export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'albedo' | 'normal', inputTensor: tf.Tensor3D, options: InputOptions) {
@@ -119,9 +119,10 @@ export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'al
         let toReturn = inputTensor;
         if (flipY) toReturn = tf.reverse(toReturn, [0]);
         if (colorspace === 'linear') toReturn = tensorLinearToSRGB(toReturn);
-
+        // if we are a normal we need to normalize the tensor into the range [-1, 1]
+        if (name === 'normal') toReturn = toReturn.sub(0.5).mul(2);
         // destroy the original input tensor
-        inputTensor.dispose();
+        if (toReturn !== inputTensor) inputTensor.dispose();
         // leaveing seperate incase we want to add handing
         return toReturn;
     });
@@ -129,7 +130,7 @@ export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'al
     // if the channels is 4 we need to strip the alpha channel
     if (!channels) {
         // split the alpha channel from the rgb data (NOTE: destroys the baseTensor)
-        const { rgb, alpha } = splitRGBA3D(baseTensor, true);
+        const { rgb, alpha } = await splitRGBA3D(baseTensor, true);
         denoiser.setInputTensor(name, rgb);
         // we only care about the alpha of the color input
         if (name === 'color') denoiser.inputAlpha = alpha;
@@ -197,7 +198,7 @@ export async function handleCallback(denoiser: Denoiser, outputTensor: tf.Tensor
         case 'webgl':
         case 'webgpu':
             // WebGL and webGPU both require the alpha channel
-            if (!denoiser.inputAlpha) data = concatenateAlpha3D(outputTensor).dataToGPU();
+            if (!denoiser.inputAlpha) data = concatenateAlpha3D(outputTensor).dataToGPU({ customTexShape: [denoiser.height, denoiser.width] });
             else data = outputTensor.dataToGPU({ customTexShape: [denoiser.height, denoiser.width] });
 
             toReturn = returnType === 'webgl' ? data.texture! : data.buffer!;
