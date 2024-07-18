@@ -24,3 +24,31 @@ export function concatenateAlpha3D(rgbTensor: tf.Tensor3D, alphaTensor?: tf.Tens
     }
     return concatenatedTensor;
 }
+
+//* Utils ----------------------------------------------
+
+// take a css scaled image and use a canvas to get the actual size
+export function getCorrectImageData(img: HTMLImageElement) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not get canvas context');
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    ctx.drawImage(img, 0, 0);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+// check if the height/width dont math
+export function hasSizeMissmatch(img: HTMLImageElement) {
+    if (!img.naturalHeight || !img.naturalWidth) return true;
+    return img.height !== img.naturalHeight || img.width !== img.naturalWidth;
+}
+
+// convert a tensor with linear color encoding to sRGB
+export function tensorLinearToSRGB(tensor: tf.Tensor3D): tf.Tensor3D {
+    return tf.tidy(() => {
+        const gamma = tf.scalar(2.2);
+        const sRGB = tensor.pow(gamma);
+        return sRGB;
+    }) as tf.Tensor3D;
+}
