@@ -1,5 +1,5 @@
 {
-  "name": "denoiser-example-upload",
+  "name": "denoiser-example-threejs-pathtracer",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,19 +9,23 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
-  "dependencies": {
-    "@types/dropzone": "^5.7.8",
-    "denoiser": "workspace:^",
-    "dropzone": "^6.0.0-beta.2"
-  },
   "devDependencies": {
+    "@tweakpane/core": "^2.0.4",
     "@typescript-eslint/eslint-plugin": "^7.13.1",
     "@typescript-eslint/parser": "^7.13.1",
     "@vitejs/plugin-react": "^4.3.1",
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.7",
+    "rollup-plugin-copy": "^3.5.0",
     "typescript": "^5.2.2",
-    "vite": "^5.3.1"
+    "vite": "^5.3.1",
+    "vite-plugin-copy": "^0.1.6",
+    "vite-plugin-static-copy": "^1.0.6"
+  },
+  "dependencies": {
+    "denoiser": "workspace:^",
+    "three-gpu-pathtracer": "^0.0.23",
+    "tweakpane": "^4.0.4"
   }
 }

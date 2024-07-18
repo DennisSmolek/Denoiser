@@ -1670,6 +1670,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@tweakpane/core@npm:^2.0.4":
+  version: 2.0.4
+  resolution: "@tweakpane/core@npm:2.0.4"
+  checksum: 10c0/9a371612bdc67167c908815974b94eeee27adb85ebbb204473be77d35bac33776ad3d7930b3102cff71ec1b9c7fef12a25c8deb2bdfa89369a2c231150915081
+  languageName: node
+  linkType: hard
+
 "@tweenjs/tween.js@npm:~23.1.1":
   version: 23.1.2
   resolution: "@tweenjs/tween.js@npm:23.1.2"
@@ -2778,12 +2785,34 @@ __metadata:
   dependencies:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
-    denoiser: "npm:^0.0.3"
+    denoiser: "workspace:^"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
     eslint-plugin-react-refresh: "npm:^0.4.7"
     typescript: "npm:^5.2.2"
     vite: "npm:^5.3.1"
+  languageName: unknown
+  linkType: soft
+
+"denoiser-example-threejs-pathtracer@workspace:examples/three-pathtracer":
+  version: 0.0.0-use.local
+  resolution: "denoiser-example-threejs-pathtracer@workspace:examples/three-pathtracer"
+  dependencies:
+    "@tweakpane/core": "npm:^2.0.4"
+    "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
+    "@typescript-eslint/parser": "npm:^7.13.1"
+    "@vitejs/plugin-react": "npm:^4.3.1"
+    denoiser: "workspace:^"
+    eslint: "npm:^8.57.0"
+    eslint-plugin-react-hooks: "npm:^4.6.2"
+    eslint-plugin-react-refresh: "npm:^0.4.7"
+    rollup-plugin-copy: "npm:^3.5.0"
+    three-gpu-pathtracer: "npm:^0.0.23"
+    tweakpane: "npm:^4.0.4"
+    typescript: "npm:^5.2.2"
+    vite: "npm:^5.3.1"
+    vite-plugin-copy: "npm:^0.1.6"
+    vite-plugin-static-copy: "npm:^1.0.6"
   languageName: unknown
   linkType: soft
 
@@ -2794,7 +2823,7 @@ __metadata:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
     "@vitejs/plugin-react": "npm:^4.3.1"
-    denoiser: "npm:^0.0.3"
+    denoiser: "workspace:^"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
     eslint-plugin-react-refresh: "npm:^0.4.7"
@@ -2814,7 +2843,7 @@ __metadata:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
     "@vitejs/plugin-react": "npm:^4.3.1"
-    denoiser: "npm:^0.0.3"
+    denoiser: "workspace:^"
     dropzone: "npm:^6.0.0-beta.2"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
@@ -2831,7 +2860,7 @@ __metadata:
     "@typescript-eslint/eslint-plugin": "npm:^7.13.1"
     "@typescript-eslint/parser": "npm:^7.13.1"
     "@vitejs/plugin-react": "npm:^4.3.1"
-    denoiser: "npm:^0.0.3"
+    denoiser: "workspace:^"
     eslint: "npm:^8.57.0"
     eslint-plugin-react-hooks: "npm:^4.6.2"
     eslint-plugin-react-refresh: "npm:^0.4.7"
@@ -2913,7 +2942,17 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"denoiser@npm:^0.0.3, denoiser@workspace:packages/denoiser":
+"denoiser@npm:^0.0.3":
+  version: 0.0.3
+  resolution: "denoiser@npm:0.0.3"
+  dependencies:
+    "@tensorflow/tfjs": "npm:^4.20.0"
+    "@tensorflow/tfjs-backend-webgpu": "npm:^4.20.0"
+  checksum: 10c0/63877efdb35e1f46314bd8f11ff6565c529e422bece87f8c41efea864decca83aaa03d79bbd547254e9729a4e5b4d5d8fe7b0fb2f5e0a4d044de687f9ce35269
+  languageName: node
+  linkType: hard
+
+"denoiser@workspace:^, denoiser@workspace:packages/denoiser":
   version: 0.0.0-use.local
   resolution: "denoiser@workspace:packages/denoiser"
   dependencies:
@@ -5915,6 +5954,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"three-gpu-pathtracer@npm:^0.0.23":
+  version: 0.0.23
+  resolution: "three-gpu-pathtracer@npm:0.0.23"
+  peerDependencies:
+    three: ">=0.151.0"
+    three-mesh-bvh: ">=0.7.4"
+    xatlas-web: ^0.1.0
+  checksum: 10c0/74be01cdb700ae29ce7ec99eb409d7c77411c3fe6aaa5fe0d20e301642523cc13ff669aa39707aa5c8f3349a71e1cff33b1de510d467123630d8af59171b7081
+  languageName: node
+  linkType: hard
+
 "three-mesh-bvh@npm:^0.7.0":
   version: 0.7.6
   resolution: "three-mesh-bvh@npm:0.7.6"
@@ -6033,6 +6083,13 @@ __metadata:
   dependencies:
     zustand: "npm:^4.3.2"
   checksum: 10c0/93cd50c7c9141e2662707602a21401145092e5a3c815b57a752937419ab6187a2ff36fa7e0f65e0c587022149bf2d323ace07dff61106511b7d4845e53390cc9
+  languageName: node
+  linkType: hard
+
+"tweakpane@npm:^4.0.4":
+  version: 4.0.4
+  resolution: "tweakpane@npm:4.0.4"
+  checksum: 10c0/34c2099cd3321c913433b299cca5faf51535c971f43ae8f3f127dd58cfd69a787ec124bf0971e5d7e0635e5cd0fdc1881bbb1d89964187ca9bb8d73331bf782f
   languageName: node
   linkType: hard
 

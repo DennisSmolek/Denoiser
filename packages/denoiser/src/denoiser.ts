@@ -29,6 +29,13 @@ type DenoiserProps = {
     useAlbedo: boolean;
     useNormal: boolean;
 };
+type InputOptions = {
+    flipY?: boolean;
+    colorspace?: 'srgb' | 'linear';
+    height?: number;
+    width?: number;
+    channels?: 3 | 4;
+}
 
 export class Denoiser {
     // counter to how many times the model was built
@@ -99,6 +106,7 @@ export class Denoiser {
 
     constructor(preferedBackend = 'webgl', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
         this.weights = Weights.getInstance();
+        console.log('Running new tiler')
         console.log('%c Denoiser initialized..', 'background: #d66b00; color: white;');
         this.setupBackend(preferedBackend, canvasOrDevice);
     }
@@ -247,6 +255,7 @@ export class Denoiser {
             }
             const customBackend = new tf.MathBackendWebGL(canvasOrDevice as HTMLCanvasElement);
             tf.registerBackend('denoiser-webgl', () => customBackend);
+            console.log('registered kernels for custom webgl backend', kernels);
         }
         await tf.setBackend('denoiser-webgl');
         await tf.ready();
@@ -427,13 +436,11 @@ export class Denoiser {
     // Take the model output and ready it to be returned
     private async handleModelOutput(result: tf.Tensor4D): Promise<tf.Tensor3D> {
         const outputImage = tf.tidy(() => {
-            //TODO this is unnecessarily verbose
             let output = result.squeeze() as tf.Tensor3D;
             // With float32 we had strange 1.0000001 values this limits to expected outputs
-            output = tf.clipByValue(output, 0, 1);
+            if (!this.hdr) output = tf.clipByValue(output, 0, 1);
             // flip the image vertically
             if (this.flipOutputY) output = tf.reverse(output, [0]);
-            // check the datatype and shape of the outputImage
             // if (this.debugging) console.log('Output Image shape:', output.shape, 'dtype:', output.dtype);
             if (this.inputAlpha) output = concatenateAlpha3D(output, this.inputAlpha);
             return output;
@@ -506,7 +513,7 @@ export class Denoiser {
                 toReturn = new ImageData(pixelData, this.props.width, this.props.height);
             }
         }
-        if (this.debugging) console.log(`Denoiser: Callback Prep duration: ${performance.now() - startTime}ms`);
+        // if (this.debugging) console.log(`Denoiser: Callback Prep duration: ${performance.now() - startTime}ms`);
 
         if (callback) callback(toReturn!);
         return toReturn!;
@@ -615,26 +622,39 @@ export class Denoiser {
     }
 
     // for a webGL texture create and set it
-    setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, height?: number, width?: number, channels = 4, flipY = false) {
+    setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, height?: number, width?: number, options: InputOptions = {}) {
+        //options
+        const { flipY, colorspace, channels } = options;
         // if passed, overwrite the height and width of the class
         if (name === 'color' && (height !== this.height || width !== this.width)) {
             if (height) this.height = height;
             if (width) this.width = width;
-        }
+        } else if (name === 'albedo') this.props.useAlbedo = true;
+        else if (name === 'normal') this.props.useNormal = true;
         const baseTensor = tf.tidy(() => {
-            const standard = tf.tensor({ texture, height: this.height, width: this.width, channels: 'RGBA' }, [this.height, this.width, channels], 'float32') as tf.Tensor3D;
+            let toReturn = tf.tensor({ texture, height: this.height, width: this.width, channels: 'RGBA' }, [this.height, this.width, channels || 4], 'float32') as tf.Tensor3D;
             //if flipping
-            if (flipY) return tf.reverse(standard, [0]);
-            return standard;
+            if (flipY) toReturn = tf.reverse(toReturn, [0]);
+
+            if (colorspace === 'linear') {
+                console.log('Colorspace converted from linear to srgb')
+                toReturn = tensorLinearToSRGB(toReturn);
+            }
+            // leaveing seperate incase we want to add handing
+            return toReturn;
         });
 
         // if the channels is 4 we need to strip the alpha channel
-        if (channels === 4) {
+        if (!channels) {
             // split the alpha channel from the rgb data (NOTE: destroys the baseTensor)
             const { rgb, alpha } = splitRGBA3D(baseTensor);
             this.setInputTensor(name, rgb);
             // we only care about the alpha of the color input
             if (name === 'color') this.inputAlpha = alpha;
+            else alpha.dispose();
+            // get rid of the baseTensor
+            //todo this might be done in splitRGBA3D
+            baseTensor.dispose();
         } else this.setInputTensor(name, baseTensor);
     }
 
@@ -676,4 +696,13 @@ function getCorrectImageData(img: HTMLImageElement) {
 function hasSizeMissmatch(img: HTMLImageElement) {
     if (!img.naturalHeight || !img.naturalWidth) return true;
     return img.height !== img.naturalHeight || img.width !== img.naturalWidth;
+}
+
+// convert a tensor with linear color encoding to sRGB
+function tensorLinearToSRGB(tensor: tf.Tensor3D): tf.Tensor3D {
+    return tf.tidy(() => {
+        const gamma = tf.scalar(2.2);
+        const sRGB = tensor.pow(gamma);
+        return sRGB;
+    }) as tf.Tensor3D;
 }
