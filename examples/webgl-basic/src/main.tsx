@@ -47,7 +47,10 @@ async function doDenoise() {
 
 	// render a image to texture
 	const noiseyTexture = await renderer.loadTextureFromURL("./noisey.jpg");
-	denoiser.setInputTexture("color", noiseyTexture, 720, 1280);
+	await denoiser.setInputTexture("color", noiseyTexture, {
+		height: 720,
+		width: 1280,
+	});
 	// pass null as we set the buffer manually
 	denoiser.execute(null, albedo, normal);
 

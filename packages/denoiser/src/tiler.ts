@@ -7,6 +7,7 @@ export class GPUTensorTiler {
     private tileSize: [number, number];
     private overlap: number;
     private batchSize: number;
+    private blendingMask: tf.Tensor2D | null = null;
 
     constructor(model: tf.LayersModel, tileSize: number, overlap = 16, batchSize = 4) {
         this.model = model;
@@ -29,58 +30,53 @@ export class GPUTensorTiler {
         const tilesY = Math.ceil(height / strideY);
         const tilesX = Math.ceil(width / strideX);
 
-        const tilesList: tf.Tensor4D[] = [];
+        const processedTiles: tf.Tensor4D[] = [];
+
         for (let y = 0; y < tilesY; y++) {
             for (let x = 0; x < tilesX; x++) {
                 const [startY, curHeight] = this.getTileDims(y, height, tileHeight, strideY);
                 const [startX, curWidth] = this.getTileDims(x, width, tileWidth, strideX);
 
-                const tile = input.slice([0, startY, startX, 0], [1, curHeight, curWidth, channels]);
+                const tile = tf.tidy(() => {
+                    const slicedTile = input.slice([0, startY, startX, 0], [1, curHeight, curWidth, channels]);
+                    return slicedTile.pad([
+                        [0, 0],
+                        [0, tileHeight - curHeight],
+                        [0, tileWidth - curWidth],
+                        [0, 0]
+                    ]);
+                });
 
-                const paddedTile = tile.pad([
-                    [0, 0],
-                    [0, tileHeight - curHeight],
-                    [0, tileWidth - curWidth],
-                    [0, 0]
-                ]);
+                const processedTile = this.model.predict(tile) as tf.Tensor4D;
+                processedTiles.push(processedTile);
 
-                tilesList.push(paddedTile as tf.Tensor4D);
+                tf.dispose(tile);
             }
         }
 
-        const processedTiles: tf.Tensor4D[] = [];
-        for (let i = 0; i < tilesList.length; i += this.batchSize) {
-            const batch = tilesList.slice(i, i + this.batchSize);
-            const batchTensor = tf.concat(batch, 0);
-            const processedBatch = this.model.predict(batchTensor) as tf.Tensor4D;
-
-            // Split the processed batch back into individual tiles
-            for (let j = 0; j < processedBatch.shape[0]; j++) {
-                processedTiles.push(processedBatch.slice([j, 0, 0, 0], [1, -1, -1, -1]));
-            }
-
-            tf.dispose([batchTensor, processedBatch]);
-        }
-
-        return this.reassembleTilesWithBlending(processedTiles, [batchSize, height, width, 3]);
+        const result = this.reassembleTilesWithBlending(processedTiles, [batchSize, height, width, 3]);
+        processedTiles.forEach(tile => tf.dispose(tile));
+        return result;
     }
 
-    // We should make this so it doesn't run every time
     private createBlendingMask(): tf.Tensor2D {
-        return tf.tidy(() => {
-            const [tileHeight, tileWidth] = this.tileSize;
-            const mask = tf.buffer([tileHeight, tileWidth]);
+        if (this.blendingMask === null) {
+            this.blendingMask = tf.tidy(() => {
+                const [tileHeight, tileWidth] = this.tileSize;
+                const mask = tf.buffer([tileHeight, tileWidth]);
 
-            for (let i = 0; i < tileHeight; i++) {
-                for (let j = 0; j < tileWidth; j++) {
-                    const yWeight = Math.min(i, tileHeight - 1 - i) / this.overlap;
-                    const xWeight = Math.min(j, tileWidth - 1 - j) / this.overlap;
-                    mask.set(Math.min(yWeight, xWeight, 1), i, j);
+                for (let i = 0; i < tileHeight; i++) {
+                    for (let j = 0; j < tileWidth; j++) {
+                        const yWeight = Math.min(i, tileHeight - 1 - i) / this.overlap;
+                        const xWeight = Math.min(j, tileWidth - 1 - j) / this.overlap;
+                        mask.set(Math.min(yWeight, xWeight, 1), i, j);
+                    }
                 }
-            }
 
-            return mask.toTensor();
-        }) as tf.Tensor2D;
+                return mask.toTensor();
+            });
+        }
+        return this.blendingMask;
     }
 
     private reassembleTilesWithBlending(tiles: tf.Tensor4D[], outputShape: [number, number, number, number]): tf.Tensor4D {
@@ -103,33 +99,45 @@ export class GPUTensorTiler {
                     const [startY, curHeight] = this.getTileDims(y, height, tileHeight, strideY);
                     const [startX, curWidth] = this.getTileDims(x, width, tileWidth, strideX);
 
-                    const tile = tiles[tileIndex].slice([0, 0, 0, 0], [1, curHeight, curWidth, channels]);
+                    const tile = tiles[tileIndex];
+                    const slicedTile = tile.slice([0, 0, 0, 0], [1, curHeight, curWidth, channels]);
                     const tileMask = blendingMask.slice([0, 0], [curHeight, curWidth]).expandDims(0).expandDims(-1);
 
-                    const weightedTile = tile.mul(tileMask);
-                    const tileWeights = tileMask;
+                    const weightedTile = slicedTile.mul(tileMask);
+                    const paddedWeightedTile = tf.pad(weightedTile, [
+                        [0, 0],
+                        [startY, height - startY - curHeight],
+                        [startX, width - startX - curWidth],
+                        [0, 0]
+                    ]);
 
-                    reassembled = reassembled.add(
-                        tf.pad(weightedTile, [[0, 0], [startY, height - startY - curHeight], [startX, width - startX - curWidth], [0, 0]])
-                    );
-                    weights = weights.add(
-                        tf.pad(tileWeights, [[0, 0], [startY, height - startY - curHeight], [startX, width - startX - curWidth], [0, 0]])
-                    );
+                    const paddedTileWeights = tf.pad(tileMask, [
+                        [0, 0],
+                        [startY, height - startY - curHeight],
+                        [startX, width - startX - curWidth],
+                        [0, 0]
+                    ]);
+
+                    reassembled = reassembled.add(paddedWeightedTile);
+                    weights = weights.add(paddedTileWeights);
 
                     tileIndex++;
                 }
             }
 
-            // Normalize by the accumulated weights
             return reassembled.div(weights.add(1e-8));
         });
     }
 
     dispose() {
-        // No additional resources to dispose in this version
+        if (this.blendingMask) {
+            this.blendingMask.dispose();
+            this.blendingMask = null;
+        }
     }
 }
 
+/*
 
 // Debug function to compare two tiles
 function compareTiles(tile1: tf.Tensor4D, tile2: tf.Tensor4D): boolean {
@@ -218,4 +226,4 @@ export async function testTiling() {
     model.dispose();
     tiler.dispose();
 }
-
+*/

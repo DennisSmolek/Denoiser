@@ -13,7 +13,9 @@ export async function splitRGBA3D(inputTensor: tf.Tensor3D, disposeInputs = true
 export function concatenateAlpha3D(rgbTensor: tf.Tensor3D, alphaTensor?: tf.Tensor3D, disposeInputs = false): tf.Tensor3D {
     //if there in no alpha tensor, create one with all 1s
     if (!alphaTensor) {
-        alphaTensor = tf.ones(rgbTensor.shape.slice(0, 2).concat([1]) as [number, number, number], 'float32');
+        alphaTensor = tf.tidy(() => {
+            return tf.ones(rgbTensor.shape.slice(0, 2).concat([1]) as [number, number, number], 'float32');
+        });
     }
 
 
@@ -51,4 +53,9 @@ export function tensorLinearToSRGB(tensor: tf.Tensor3D): tf.Tensor3D {
         const sRGB = tensor.pow(gamma);
         return sRGB;
     }) as tf.Tensor3D;
+}
+
+// output how many tensors are in memory
+export function memoryStats(preString = '') {
+    console.log(`${preString} Tensors in memory:`, tf.memory().numTensors);
 }
