@@ -1,7 +1,7 @@
 import * as tf from '@tensorflow/tfjs';
 
 // Function to split RGBA tensor into RGB and A tensors for Tensor3D
-export async function splitRGBA3D(inputTensor: tf.Tensor3D, disposeInputs = true): { rgb: tf.Tensor3D, alpha: tf.Tensor3D } {
+export async function splitRGBA3D(inputTensor: tf.Tensor3D, disposeInputs = true): Promise<{ rgb: tf.Tensor3D; alpha: tf.Tensor3D; }> {
     // Assuming inputTensor shape is [height, width, 4] where the last dimension is RGBA
     const rgb = tf.slice(inputTensor, [0, 0, 0], [-1, -1, 3]); // Take the first 3 channels (RGB)
     const alpha = tf.slice(inputTensor, [0, 0, 3], [-1, -1, 1]); // Take the 4th channel (Alpha)
@@ -57,5 +57,28 @@ export function tensorLinearToSRGB(tensor: tf.Tensor3D): tf.Tensor3D {
 
 // output how many tensors are in memory
 export function memoryStats(preString = '') {
+    //@ts-ignore
+    const stringe = preString;
     console.log(`${preString} Tensors in memory:`, tf.memory().numTensors);
+}
+export function logMemoryUsage(stage: string) {
+    const memoryInfo = tf.memory() as any;
+    console.log(`%cMemory usage at ${stage}:`, 'background-color: blue; color: white');
+    console.table({
+        numBytes: formatBytes(memoryInfo.numBytes),
+        numBytesInGPU: formatBytes(memoryInfo.numBytesInGPU),
+        numBytesInGPUAllocated: formatBytes(memoryInfo.unreliable ? 0 : memoryInfo.numBytesInGPUAllocated),
+        numBytesInGPUFree: formatBytes(memoryInfo.unreliable ? 0 : memoryInfo.numBytesInGPUFree),
+        numDataBuffers: memoryInfo.numDataBuffers,
+        numTensors: memoryInfo.numTensors
+    });
+
+}
+
+export function formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }

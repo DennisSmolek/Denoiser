@@ -545,6 +545,7 @@ export class Renderer {
 
     // when the mouse goes down initially we need to hide the denoiser right away
     hideDenoisedOutput() {
+        this.pathtracer.reset();
         this.dfadeStart = 0;
         this.denoiseBlocked = false;
         (this.fullscreenQuad!.material as THREE.ShaderMaterial).uniforms.dBlend.value = 0;
@@ -653,7 +654,7 @@ export class Renderer {
         this.renderer.render(this.flatScene, this.flatCamera);
         this.renderer.resetState();
         //* Denoiser Pass
-        if (this.stats.samples === this.params.denoiseAt) {
+        if (Math.round(this.pathtracer.samples) === this.params.denoiseAt) {
             this.runDenoiser();
         }
     }

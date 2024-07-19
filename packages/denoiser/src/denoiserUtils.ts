@@ -3,7 +3,7 @@ import * as tf from '@tensorflow/tfjs';
 import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
 import type { Denoiser } from './denoiser';
 import type { DenoiserProps, InputOptions } from 'types/types';
-import { concatenateAlpha3D, memoryStats, splitRGBA3D, tensorLinearToSRGB } from './utils';
+import { concatenateAlpha3D, logMemoryUsage, memoryStats, splitRGBA3D, tensorLinearToSRGB } from './utils';
 
 export async function setupBackend(denoiser: Denoiser, prefered = 'webgl', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
     // do the easy part first
@@ -126,7 +126,7 @@ export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'al
         // leaveing seperate incase we want to add handing
         return toReturn;
     });
-
+    logMemoryUsage('After Input Processing');
     // if the channels is 4 we need to strip the alpha channel
     if (!channels) {
         // split the alpha channel from the rgb data (NOTE: destroys the baseTensor)
@@ -135,6 +135,7 @@ export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'al
         // we only care about the alpha of the color input
         if (name === 'color') denoiser.inputAlpha = alpha;
         else alpha.dispose();
+        logMemoryUsage('After Alpha Split');
     } else denoiser.setInputTensor(name, baseTensor);
 }
 
@@ -158,7 +159,7 @@ export async function handleModelInput(denoiser: Denoiser): Promise<tf.Tensor4D>
     if (albedo && normal && !denoiser.props.dirtyAux) denoiser.props.cleanAux = true;
 
     // concat the images
-    return tf.tidy(() => {
+    const toReturn = tf.tidy(() => {
         let concatenatedImage: tf.Tensor3D;
         if (albedo) {
             if (normal) concatenatedImage = tf.concat([color, albedo, normal], -1);
@@ -168,6 +169,8 @@ export async function handleModelInput(denoiser: Denoiser): Promise<tf.Tensor4D>
         // Reshape for batch size
         return concatenatedImage.expandDims(0) as tf.Tensor4D; // Now shape is [1, height, width, 9]
     });
+    logMemoryUsage('After Model Input Concatenation');
+    return toReturn;
 
 }
 // Take the model output and ready it to be returned
@@ -197,14 +200,14 @@ export async function handleModelOutput(denoiser: Denoiser, result: tf.Tensor4D)
 export async function handleCallback(denoiser: Denoiser, outputTensor: tf.Tensor3D, returnType: string, callback?: Function | undefined) {
     let toReturn: tf.Tensor3D | ImageData | WebGLTexture | GPUBuffer;
     let data: tf.GPUData;
-    const startTime = performance.now();
+    //const startTime = performance.now();
     switch (returnType) {
         case 'webgl':
         case 'webgpu':
             // WebGL and webGPU both require the alpha channel
-            //if (!denoiser.inputAlpha) data = concatenateAlpha3D(outputTensor).dataToGPU({ customTexShape: [denoiser.height, denoiser.width] });
-            //else 
-            data = outputTensor.dataToGPU({ customTexShape: [denoiser.height, denoiser.width] });
+            if (!denoiser.inputAlpha) data = concatenateAlpha3D(outputTensor).dataToGPU({ customTexShape: [denoiser.height, denoiser.width] });
+            else
+                data = outputTensor.dataToGPU({ customTexShape: [denoiser.height, denoiser.width] });
 
             toReturn = returnType === 'webgl' ? data.texture! : data.buffer!;
             if (!toReturn) throw new Error('Denoiser: Could not convert to GPU Accessible Tensor');
