@@ -1,5 +1,5 @@
 import * as tf from '@tensorflow/tfjs';
-import { formatBytes } from './utils';
+import { formatBytes, isMobile } from './utils';
 
 export class GPUTensorTiler {
     private model: tf.LayersModel;
@@ -20,6 +20,7 @@ export class GPUTensorTiler {
     private calculateBatchSize(): number {
         // Implement logic to determine batch size based on available GPU memory
         // This is a placeholder implementation
+        if (isMobile()) return 1;
         return 4;
     }
 
@@ -81,7 +82,7 @@ export class GPUTensorTiler {
                         [0, 0]
                     ]);
 
-                    batchTiles.push(paddedTile);
+                    batchTiles.push(paddedTile as tf.Tensor4D);
                 }
                 this.logMemoryUsage(`After slicing batch ${batch + 1}/${batches}`);
 
@@ -101,7 +102,7 @@ export class GPUTensorTiler {
             this.logMemoryUsage(`After processing batch ${batch + 1}/${batches}`);
 
             // Explicitly run garbage collection after each batch
-            tf.disposeVariables();
+            //tf.disposeVariables();
             await tf.nextFrame();  // Allow GPU to potentially free up memory
         }
 
@@ -128,7 +129,7 @@ export class GPUTensorTiler {
                 }
 
                 return mask.toTensor();
-            });
+            }) as tf.Tensor2D;
         }
         return this.blendingMask!;
     }

@@ -82,3 +82,10 @@ export function formatBytes(bytes: number): string {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
+
+export function isMobile() {
+    return /Mobi/.test(navigator.userAgent) || // User agent contains "Mobi"
+        (window.innerWidth <= 800 && window.innerHeight <= 600) || // Small screen size
+        ('ontouchstart' in window) || // Touch capabilities
+        (navigator.maxTouchPoints > 0); // Touch points available
+}

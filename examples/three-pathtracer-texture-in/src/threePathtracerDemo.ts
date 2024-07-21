@@ -4,7 +4,6 @@ import { generateRadialFloorTexture } from './utils/generateRadialFloorTexture.j
 import { LDrawLoader } from 'three/examples/jsm/loaders/LDrawLoader.js';
 import { LDrawUtils } from 'three/examples/jsm/utils/LDrawUtils.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import Stats from 'three/examples/jsm/libs/stats.module.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { Pane } from 'tweakpane';
 import * as EssentialsPlugin from '@tweakpane/plugin-essentials';
@@ -14,9 +13,11 @@ import { AlbedoNormalPass } from './albedoAndNormalsRenderPass.js';
 
 type statsObject = { samples: number, isDenoised: boolean };
 export class Renderer {
+    private renderer: THREE.WebGLRenderer;
     pathtracer!: WebGLPathTracer;
     denoiser!: Denoiser;
     pane!: Pane;
+    private fpsGraph!: any;
 
     params = {
         envmapUrl: 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/master/hdri/modern_buildings_2_2k.hdr',
@@ -26,12 +27,26 @@ export class Renderer {
         denoiseAt: 6,
         pfade: 500,
         dfade: 500,
-        useCanvasInput: true,
+        useCanvasInput: false,
         showBackdrop: false,
-        useAux: true
-    };
+        useAux: true,
+        denoiserEnabled: true,
+        paused: false,
+        pathtracerEnabled: true,
+        useFast: true,
+        sampleCount: 0,
 
-    private renderer: THREE.WebGLRenderer;
+    };
+    // stats for output
+    stats = {
+        samples: 0,
+        isDenoised: false,
+        denoising: false,
+        inputHandleTime: 0,
+        executionTime: 0,
+        renderTime: 0,
+    }
+
     private scene = new THREE.Scene();
     private flatScene = new THREE.Scene();
 
@@ -42,7 +57,9 @@ export class Renderer {
     private colorRenderTarget!: THREE.WebGLRenderTarget;
     private albedoNormalRenderTarget!: THREE.WebGLRenderTarget;
     private denoiserRenderTarget = new THREE.WebGLRenderTarget(1, 1);
+    private conversionRenderTarget!: THREE.WebGLRenderTarget;
     private denoiserTargetStaged = false;
+
     // Passes
     private albedoNormalPass = new AlbedoNormalPass();
 
@@ -52,49 +69,29 @@ export class Renderer {
     //* Data
     private models = new Map<string, THREE.Object3D>();
 
-    fpsGraph!: any;
-
-    // states
-    paused = false;
-    pathtracerEnabled = true;
-    doAlbedoAndNormals = true;
     // status for denoiser
     private denoising = false;
     private denoiseBlocked = false;
 
-    // stats for output
-    stats = {
-        samples: 0,
-        isDenoised: false,
-        denoising: false,
-        inputHandleTime: 0,
-        executionTime: 0,
-        renderTime: 0,
 
-    }
     // holders for timers
-    timers = {
+    private timers = {
         inputStartTime: 0,
         executionStartTime: 0,
         renderStartTime: 0,
+        pfadeStart: 0,
+        dfadeStart: 0,
     }
 
-    private fullscreenQuad?: THREE.Mesh;
-    public statsWidget = new Stats();
-    public controls: OrbitControls;
-
     // Scene objects
-    modelHolder = new THREE.Object3D();
-    backdrop: THREE.Mesh | undefined;
-
-    // holders for fade timers
-    private pfadeStart = 0;
-    private dfadeStart = 0;
-
-    private backendListeners = new Set<(arg: Renderer) => void>();
-    private _ready = false;
+    private fullscreenQuad?: THREE.Mesh;
+    public controls: OrbitControls;
+    private modelHolder = new THREE.Object3D();
+    private backdrop: THREE.Mesh | undefined;
 
     private statsListeners = new Set<(arg0: statsObject) => void>();
+    private backendListeners = new Set<(arg: Renderer) => void>();
+    private _ready = false;
 
     constructor(canvas: HTMLCanvasElement) {
         this.renderer = new THREE.WebGLRenderer({ canvas, });
@@ -137,6 +134,17 @@ export class Renderer {
         );
         this.albedoNormalRenderTarget.textures[0].name = 'albedo';
         this.albedoNormalRenderTarget.textures[1].name = 'normal';
+        // for converteing pathtracer output to a usable format
+        this.conversionRenderTarget = new THREE.WebGLRenderTarget(
+            this.renderer.domElement.width,
+            this.renderer.domElement.height,
+            {
+                format: THREE.RGBAFormat,
+                type: THREE.UnsignedByteType
+            }
+        );
+        //@ts-ignore
+        this.conversionRenderTarget.colorspace = THREE.SRGBColorSpace;
     }
 
     //* Scene Setup ----------------------------
@@ -227,6 +235,7 @@ export class Renderer {
             uniform float pBlend;
             uniform float dBlend;
             uniform bool canvasIn;
+            uniform bool readingPT;
             varying vec2 vUv;
 
             vec4 LinearToSRGB(vec4 value) {
@@ -243,9 +252,9 @@ export class Renderer {
             vec4 pOut = mix(tBase, texture2D(pathtraced, vUv), pBlend);
             vec4 dOut;
             if(canvasIn) {
-                dOut = mix(pOut, SRGBToLinear(texture2D(denoised, vUv)), dBlend);
+                    dOut = mix(pOut, SRGBToLinear(texture2D(denoised, vUv)), dBlend);
             } else {
-                dOut = mix(pOut, texture2D(denoised, vUv), dBlend);
+                    dOut = mix(pOut, texture2D(denoised, vUv), dBlend);
             }
             switch (base) {
                 case 1:
@@ -262,16 +271,22 @@ export class Renderer {
                     break;
                 case 5:
                     if(canvasIn) {
-                        finalOut = SRGBToLinear(texture2D(denoised, vUv));
+                                finalOut = SRGBToLinear(texture2D(denoised, vUv));
                     } else {
-                        finalOut = texture2D(denoised, vUv);
+                            finalOut = texture2D(denoised, vUv);
                     }
                     break;
-                default:
+               default:
                     finalOut = dOut; 
                     break;
             }
-             gl_FragColor = LinearTosRGB(finalOut);
+            if(readingPT) {
+                gl_FragColor = texture2D(pathtraced,vUv);
+                }
+                else {
+            gl_FragColor = LinearTosRGB(finalOut);
+            }
+            
           }
         `,
                 uniforms: {
@@ -283,7 +298,8 @@ export class Renderer {
                     base: { value: 0.0 },
                     pBlend: { value: 0.0 },
                     dBlend: { value: 0.0 },
-                    canvasIn: { value: true }
+                    canvasIn: { value: false },
+                    readingPT: { value: false },
                 }
             })
         );
@@ -300,7 +316,8 @@ export class Renderer {
             view: 'fpsgraph',
             label: 'fps',
             rows: 2
-        })
+        });
+        this.pane.addBinding(this.params, 'sampleCount', { label: 'Samples', readonly: true });
         const options = this.pane.addFolder({ title: 'Options', expanded: false, });
         const envOptions = Object.entries(envMaps).map(([key, value]) => ({ text: key, value: value }));
         options.addBinding(this.params, 'envmapUrl', {
@@ -325,13 +342,39 @@ export class Renderer {
             // we also have to update the scene
             this.sceneUpdated();
         });
-
+        // Pathtracer options ----------------------------
         const ptFolder = options.addFolder({ title: 'Pathtracer', expanded: false, });
+        ptFolder.addBinding(this.params, 'pathtracerEnabled', { label: 'Enable Pathtracer' })
         ptFolder.addBinding(this.params, 'samples', { label: 'Samples', min: 1, max: 100, step: 1 })
 
+        // Denoiser options ----------------------------
         const dnFolder = options.addFolder({ title: 'Denoiser', expanded: false, });
+        dnFolder.addBinding(this.params, 'denoiserEnabled', { label: 'Enable Denoiser' });
+        dnFolder.addBinding(this.params, 'useFast', { label: 'Use Fast Quality' })
+            .on('change', () => {
+                this.denoiser.quality = this.params.useFast ? 'fast' : 'balanced';
+                //this.denoiser.resetInputs();
+                this.pathtracer.reset();
+                this.hideDenoisedOutput();
+            });
+
         dnFolder.addBinding(this.params, 'denoiseAt', { label: 'Denoise At', min: 1, max: 100, step: 1 });
-        dnFolder.addBinding(this.params, 'useCanvasInput', { label: 'Use Canvas Input', disabled: true });
+        dnFolder.addBinding(this.params, 'useAux', { label: 'Use Aux Textures' })
+            .on('change', () => {
+                this.denoiser.resetInputs();
+                this.hideDenoisedOutput();
+                this.pathtracer.reset();
+            });
+
+        dnFolder.addBinding(this.params, 'useCanvasInput', { label: 'Use Canvas Input' })
+            .on('change', () => {
+                this.denoiser.resetInputs();
+                this.denoiser.flipOutputY = this.params.useCanvasInput;
+                //@ts-ignore
+                this.fullscreenQuad!.material.uniforms.canvasIn.value = this.params.useCanvasInput;
+                this.pathtracer.reset();
+                this.hideDenoisedOutput();
+            });
 
         // options.addBinding(this, 'paused', { label: 'Pause' });
         options.addBinding(this.params, 'outputBase', {
@@ -377,13 +420,26 @@ export class Renderer {
         this.pathtracer.renderSample();
         this.outputTextures.set('pathtraced', this.pathtracer.target.texture);
         this.stats.samples = Math.floor(this.pathtracer.samples);
+        this.params.sampleCount = this.stats.samples;
         // if the samples is 1, the pathtracer has just started
         if (this.stats.samples === 1) {
-            this.pfadeStart = Date.now();
+            this.timers.pfadeStart = Date.now();
             // set the denoiser to 0
-            this.dfadeStart = 0;
+            this.timers.dfadeStart = 0;
         }
-        this.statsUpdated();
+        if (!this.params.useCanvasInput) this.statsUpdated();
+    }
+    // take the input texture, apply tonemapping and color conversion
+    simulateOutput() {
+        //this.resetState();
+        (this.fullscreenQuad!.material as THREE.ShaderMaterial).uniforms.readingPT = { value: true };
+        this.renderer.setRenderTarget(this.conversionRenderTarget);
+        this.renderer.render(this.flatScene, this.flatCamera);
+        this.renderer.setRenderTarget(null);
+        // reset the full screen quad
+        (this.fullscreenQuad!.material as THREE.ShaderMaterial).uniforms.readingPT = { value: false };
+        //this.resetState();
+        this.outputTextures.set('pathtracedSRGB', this.conversionRenderTarget.texture);
     }
 
     //* Denoiser Methods ----------------------------
@@ -397,12 +453,11 @@ export class Renderer {
         //this.denoiser.usePassThrough = true;
         this.denoiser.height = this.renderer.domElement.height;
         this.denoiser.width = this.renderer.domElement.width;
-        this.denoiser.flipOutputY = true;
+        //this.denoiser.flipOutputY = true;
 
         // for debugging dump the denoiser to the rawOutput canvas
         //const rawOutputCanvas = document.getElementById("rawOutput") as HTMLCanvasElement;
-        // this.denoiser.setCanvas(rawOutputCanvas);
-
+        //this.denoiser.setCanvas(rawOutputCanvas);
 
         this.denoiser.onBackendReady(() => {
             // start the renderer and let other systems know
@@ -410,13 +465,12 @@ export class Renderer {
             this.animate();
         });
 
-
         // on execution
         this.denoiser.onExecute((denoisedWebGLTexture: WebGLTexture) => {
             // pull the original color texture
             const denoisedTexture = this.denoiserRenderTarget.texture;
             // flipY
-            //denoisedTexture.flipY = true;
+            denoisedTexture.flipY = true;
 
             // insert the webGL into this texture
             const denoisedTextureProps = this.renderer.properties.get(denoisedTexture);
@@ -425,7 +479,7 @@ export class Renderer {
             this.outputTextures.set('denoised', denoisedTexture);
             this.stats.isDenoised = true;
             this.statsUpdated();
-            this.dfadeStart = Date.now();
+            this.timers.dfadeStart = Date.now();
             this.denoising = false;
             this.stats.executionTime = performance.now() - this.timers.executionStartTime;
             this.stats.denoising = false;
@@ -435,34 +489,40 @@ export class Renderer {
     }
 
     async runDenoiser() {
-        if (this.denoising || this.denoiseBlocked) return;
+        if (this.denoising || this.denoiseBlocked || !this.params.denoiserEnabled) return;
         // we dont want to run the denoiser if we arent on a beauty output
         if (this.params.outputBase !== 0) return;
+        // Take the pathtracer output, tonemap and convert it 
+        this.simulateOutput();
         this.resetState();
         // block future denoising attempts
+        // todo: do we need two blockers?
         this.denoising = true;
         this.denoiseBlocked = true;
         console.log('%c Denoise Step Started...', 'color: purple');
         this.timers.inputStartTime = performance.now();
 
         // get the webgl texture out of this
-        const colorTexture = this.getWebGLTexture(this.outputTextures.get('pathtraced')!, true);
+        const colorTexture = this.getWebGLTexture(this.outputTextures.get('pathtracedSRGB')!, true);
         const albedoTexture = this.getWebGLTexture(this.outputTextures.get('albedo')!, true);
         const normalTexture = this.getWebGLTexture(this.outputTextures.get('normal')!, true);
 
         // run like normal with textures feeding in/out
         if (this.params.useCanvasInput) {
             // can we pass the canvas directly?
+            console.log('Setting input image directly from canvas')
             this.denoiser.setInputImage('color', this.renderer.domElement!);
             // flip the inputs to match the canvas input
-            await this.denoiser.setInputTexture('albedo', albedoTexture, { flipY: true });
-            await this.denoiser.setInputTexture('normal', normalTexture, { flipY: true });
-
+            if (this.params.useAux) {
+                await this.denoiser.setInputTexture('albedo', albedoTexture, { flipY: true });
+                await this.denoiser.setInputTexture('normal', normalTexture, { flipY: true });
+            }
         } else {
-            await this.denoiser.setInputTexture('color', colorTexture, { colorspace: 'linear' });
-            await this.denoiser.setInputTexture('albedo', albedoTexture);
-            await this.denoiser.setInputTexture('normal', normalTexture);
-
+            await this.denoiser.setInputTexture('color', colorTexture);
+            if (this.params.useAux) {
+                await this.denoiser.setInputTexture('albedo', albedoTexture);
+                await this.denoiser.setInputTexture('normal', normalTexture);
+            }
         }
         this.stats.inputHandleTime = performance.now() - this.timers.inputStartTime;
         console.log('Denoiser Input time', Math.round(this.stats.inputHandleTime));
@@ -507,7 +567,7 @@ export class Renderer {
 
     //* For when you change things in the control panel
     updateEnvMap() {
-        new RGBELoader().load(this.params.envmapUrl, (texture) => {
+        new RGBELoader().load(this.params.envmapUrl, (texture: THREE.Texture) => {
             texture.mapping = THREE.EquirectangularReflectionMapping;
             this.scene.background = texture;
             this.scene.environment = texture;
@@ -527,19 +587,13 @@ export class Renderer {
             material.uniforms[name] = { value: texture };
         }
         // update the blends of textures
-
-        let pfade = Math.min(1, Math.max(0, (Date.now() - this.pfadeStart) / this.params.pfade));
-        let dfade = Math.min(1, Math.max(0, (Date.now() - this.dfadeStart) / this.params.dfade));
-        if (this.stats.samples < this.params.samples.min) {
-
-            pfade = 0;
-        }
-
-        if (this.dfadeStart === 0) {
-            dfade = 0;
-        }
-
-        //console.log('pfade', pfade, 'dfade', dfade, 'dfadestart', this.dfadeStart);
+        let pfade = Math.min(1, Math.max(0, (Date.now() - this.timers.pfadeStart) / this.params.pfade));
+        let dfade = Math.min(1, Math.max(0, (Date.now() - this.timers.dfadeStart) / this.params.dfade));
+        if (this.stats.samples < this.params.samples.min) pfade = 0;
+        if (this.timers.dfadeStart === 0) dfade = 0;
+        //force disable
+        if (!this.params.pathtracerEnabled) pfade = 0;
+        if (!this.params.denoiserEnabled) dfade = 0;
         (this.fullscreenQuad!.material as THREE.ShaderMaterial).uniforms.pBlend.value = pfade;
         (this.fullscreenQuad!.material as THREE.ShaderMaterial).uniforms.dBlend.value = dfade;
     }
@@ -547,7 +601,7 @@ export class Renderer {
     // when the mouse goes down initially we need to hide the denoiser right away
     hideDenoisedOutput() {
         this.pathtracer.reset();
-        this.dfadeStart = 0;
+        this.timers.dfadeStart = 0;
         this.denoiseBlocked = false;
         (this.fullscreenQuad!.material as THREE.ShaderMaterial).uniforms.dBlend.value = 0;
         (this.fullscreenQuad!.material as THREE.ShaderMaterial).uniforms.pBlend.value = 0;
@@ -568,6 +622,7 @@ export class Renderer {
         return () => this.statsListeners.delete(callback);
     }
 
+    //* Model Handling ----------------------------
     // set the model after loading it
     async setModel(modelName: string) {
         // get the model, load if needed
@@ -608,20 +663,23 @@ export class Renderer {
 
     private animate() {
         this.fpsGraph.begin();
-        if (!this.paused) this.controls.update();
-        this.draw();
+        if (!this.params.paused) {
+            this.controls.update();
+            this.draw();
+        }
         this.fpsGraph.end();
 
         requestAnimationFrame(() => this.animate());
     }
 
     private draw() {
-        if (this.paused) return;
+        if (this.params.paused) return;
         this.renderer.resetState();
         const originalEnvMap = this.scene.environment;
         const originalBackground = this.scene.background;
 
         // to setup the denoiser correct with three we need to run the texture at least once
+        //TODO Three actually has staging on textures, this can be removed once done #16
         if (!this.denoiserTargetStaged) {
             this.renderer.setRenderTarget(this.denoiserRenderTarget);
             this.renderer.render(this.scene, this.camera);
@@ -634,7 +692,7 @@ export class Renderer {
         this.outputTextures.set('color', this.colorRenderTarget.texture);
 
         //* Albedos and normals pass
-        if (this.doAlbedoAndNormals) {
+        if (this.params.useAux) {
             this.scene.environment = null;
             this.scene.background = null;
             this.albedoNormalPass.render(this.renderer, this.scene, this.camera, this.albedoNormalRenderTarget);
@@ -646,7 +704,7 @@ export class Renderer {
         this.scene.environment = originalEnvMap;
         this.scene.background = originalBackground;
         this.renderer.setRenderTarget(null);
-        if (this.pathtracerEnabled && this.pathtracer.samples < this.params.samples.max) {
+        if (this.params.pathtracerEnabled && this.pathtracer.samples < this.params.samples.max) {
             this.renderPathtracer();
         }
 
@@ -659,6 +717,7 @@ export class Renderer {
             this.runDenoiser();
         }
     }
+
     //* Utilities that require things in the class ===========================================
     // Get the webGLTexture out of a renderTarget
     getWebGLTexture(input: THREE.WebGLRenderTarget | THREE.Texture, asTexture = false): WebGLTexture {

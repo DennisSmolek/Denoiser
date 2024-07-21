@@ -1,0 +1,35 @@
+{
+  "name": "denoiser-example-threejs-pathtracer-texture-in",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@tweakpane/core": "^2.0.4",
+    "@types/three": "^0.166.0",
+    "@typescript-eslint/eslint-plugin": "^7.13.1",
+    "@typescript-eslint/parser": "^7.13.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.7",
+    "rollup-plugin-copy": "^3.5.0",
+    "typescript": "^5.2.2",
+    "vite": "^5.3.1",
+    "vite-plugin-copy": "^0.1.6",
+    "vite-plugin-static-copy": "^1.0.6"
+  },
+  "dependencies": {
+    "@tweakpane/plugin-essentials": "^0.2.1",
+    "denoiser": "workspace:^",
+    "three": "^0.166.1",
+    "three-gpu-pathtracer": "^0.0.23",
+    "three-mesh-bvh": "^0.7.6",
+    "tweakpane": "^4.0.4"
+  }
+}

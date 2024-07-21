@@ -2,11 +2,11 @@
 import * as tf from '@tensorflow/tfjs';
 import { Weights } from './weights';
 import { UNet } from './unet';
-import { getCorrectImageData, hasSizeMissmatch, memoryStats } from './utils';
+import { getCorrectImageData, hasSizeMissmatch } from './utils';
 import { GPUTensorTiler } from './tiler';
 import { WebGLStateManager } from './webglStateManager';
 import { setupBackend, determineTensorMap, handleModelInput, handleModelOutput, handleCallback, adjustSize, handleInputTensors } from './denoiserUtils';
-import { logMemoryUsage } from './utils';
+//import { logMemoryUsage } from './utils';
 // TODO: These shouldnt have to be imported
 import type { TensorMap, DenoiserProps, ImgInput, InputOptions, ListenerCalback, ModelInput } from 'types/types';
 
@@ -169,16 +169,12 @@ export class Denoiser {
         const { tensorMapLabel, size } = determineTensorMap(this.props);
 
         if (this.debugging) console.log(`Denoiser: starting Build with TensorMap: ${tensorMapLabel}...`);
-        memoryStats('Before loading weights')
         this.activeTensorMap = await this.weights.getCollection(tensorMapLabel);
-        memoryStats('After loading weights')
         // calculate channels
         let channels = 0;
         if (this.props.useColor) channels += 3;
         if (this.props.useAlbedo) channels += 3;
         if (this.props.useNormal) channels += 3;
-
-        this.useTiling = true;
 
         // calculate dimensions
         const height = this.useTiling ? this.tileSize : this.props.height;
@@ -189,16 +185,14 @@ export class Denoiser {
         if (this.tiler) this.tiler.dispose();
 
         if (this.debugging) startTime = performance.now();
-        memoryStats('Before UNet Creation')
         this.unet = new UNet({ weights: this.activeTensorMap, size, height, width, channels });
 
         const model = (this.usePassThrough) ? await this.unet.debugBuild() : await this.unet.build();
         if (!model) throw new Error('UNet Model failed to build');
 
-        memoryStats('After UNet Creation')
         //* Tiling
         if (this.useTiling) {
-            this.tiler = new GPUTensorTiler(model, this.tileSize || 256, 16, 4, true);
+            this.tiler = new GPUTensorTiler(model, this.tileSize || 256);
             console.log('%c Denoiser: Using Tiling Output', 'background: green; color: white;');
         }
 
@@ -246,25 +240,20 @@ export class Denoiser {
 
     // actually execute the model with the set inputs of this class
     private async executeModel() {
-        memoryStats('Before Execute');
         let startTime: number;
         if (this.debugging) console.log('%c Denoiser: Denoising...', 'background: blue; color: white;');
         if (this.debugging) startTime = performance.now();
 
         // process and send the input to the model
-        //const inputTensor = await handleModelInput(this);
-        const inputTensor = GPUTensorTiler.generateSampleInput(this.props.height, this.props.width, 4);
-        logMemoryUsage('After Handle Input');
+        const inputTensor = await handleModelInput(this);
+        //const inputTensor = GPUTensorTiler.generateSampleInput(this.props.height, this.props.width, 4);
 
         // if we need to rebuild the model
         if (this.isDirty) await this.build();
-        memoryStats('After Build');
-
 
         // Execute model with tiling or standard
         const result = this.useTiling ? await this.tiler!.processLargeTensor(inputTensor)
             : await this.unet.execute(inputTensor);
-        memoryStats('After Execute');
 
         // this helps us debug input/output by making the model a pure pass through
         /* if (this.usePassThrough && !this.props.useAlbedo) {
@@ -274,16 +263,14 @@ export class Denoiser {
              isEqual.all().print();
          }*/
         // process the output
-        //const output = await handleModelOutput(this, result);
-        memoryStats('after model output');
-
+        const output = await handleModelOutput(this, result);
 
         if (this.debugging) {
             //console.log('Output Tensor')
             //  output.print(); 
-            if (this.debugging) console.log(`Denoiser: Execution Time: ${performance.now() - startTime!}ms`);
+            if (this.debugging) console.log(`Denoiser: Execution Time: ${Math.round(performance.now() - startTime!)}ms`);
         }
-        //return this.handleReturn(output);
+        return this.handleReturn(output);
     }
 
     // handle returns and callbacks
@@ -303,13 +290,6 @@ export class Denoiser {
 
         if (this.gl) this.webglStateManager?.saveState();
 
-        // to clearup memory issues lets log out things
-        // console.log('Memory:', tf.memory());
-
-        //console.log('Engine:', tf.engine().state.numBytes, tf.engine().state.numTensors);
-        //console.log(tf.engine())
-
-
         return toReturn;
     }
 
@@ -319,8 +299,6 @@ export class Denoiser {
         // destroy existing tensor
         this.inputTensors.get(name)?.dispose();
         this.inputTensors.set(name, tensor);
-
-        memoryStats(`Set Input Tensor ${name}`);
     }
 
     //* Image Input ---
@@ -339,6 +317,7 @@ export class Denoiser {
             finalData = getCorrectImageData(imgData);
         }
         if (name === 'color') {
+            this.props.useColor = true;
             let inHeight = 0, inWidth = 0;
             // if the input is an html image use the natural height and width
             if (imgData instanceof HTMLImageElement) {
@@ -359,15 +338,11 @@ export class Denoiser {
         else if (name === 'normal') this.props.useNormal = true;
 
         this.setInputTensor(name, tf.tidy(() => {
-            let tensor: tf.Tensor3D;
-            let toReturn: tf.Tensor3D;
-            if (name === 'normal') {
-                tensor = this.createImageTensor(finalData, true);
-            } else tensor = this.createImageTensor(finalData);
-            if (!flipY) toReturn = tensor;
-            else toReturn = tf.reverse(tensor, [0]);
-            logMemoryUsage(`Image tensor ${name}`);
-            return toReturn;
+            return tf.tidy(() => {
+                const imageTensor = this.createImageTensor(finalData, name === 'normal');
+                if (!flipY) return imageTensor;
+                return tf.reverse(imageTensor, [0]);
+            });
         }));
     }
 
@@ -379,8 +354,7 @@ export class Denoiser {
             if (!isNormalMap) return imgTensor.toFloat().div(tf.scalar(255)) as tf.Tensor3D;
 
             // normalize the tensor to OIDN expect range of -1 to 1
-            const normalized = imgTensor.toFloat().div(tf.scalar(127.5)).sub(tf.scalar(1));
-            return normalized as tf.Tensor3D;
+            return imgTensor.toFloat().div(tf.scalar(127.5)).sub(tf.scalar(1));
         });
     }
 
@@ -394,7 +368,6 @@ export class Denoiser {
     // for a webGL texture create and set it
     async setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, options: InputOptions = {}) {
         if (name === 'color') adjustSize(this, options);
-        logMemoryUsage(`Before Texture Input ${name}`);
         const baseTensor = tf.tensor({ texture, height: this.height, width: this.width, channels: 'RGBA' }, [this.height, this.width, options.channels || 4], 'float32') as tf.Tensor3D;
         await handleInputTensors(this, name, baseTensor, options);
     }
@@ -416,8 +389,13 @@ export class Denoiser {
     }
     // clear the input tensors and mark dirty
     resetInputs() {
+        console.log('%c Denoiser: RESETTING INPUTS', 'background: red; color: white');
         this.inputTensors.forEach((tensor) => tensor.dispose());
         this.inputTensors.clear();
+        if (this.inputAlpha) {
+            this.inputAlpha.dispose();
+            this.inputAlpha = undefined;
+        }
         if (this.directInputTensor) this.directInputTensor.dispose();
         this.props.useColor = false;
         this.props.useAlbedo = false;

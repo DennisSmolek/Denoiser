@@ -3,7 +3,7 @@ import * as tf from '@tensorflow/tfjs';
 import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
 import type { Denoiser } from './denoiser';
 import type { DenoiserProps, InputOptions } from 'types/types';
-import { concatenateAlpha3D, logMemoryUsage, memoryStats, splitRGBA3D, tensorLinearToSRGB } from './utils';
+import { concatenateAlpha3D, splitRGBA3D, tensorLinearToSRGB } from './utils';
 
 export async function setupBackend(denoiser: Denoiser, prefered = 'webgl', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
     // do the easy part first
@@ -70,7 +70,6 @@ export async function setupBackend(denoiser: Denoiser, prefered = 'webgl', canva
     denoiser.webglStateManager?.saveState();
 
     return denoiser.backend;
-
 }
 
 // Resolves the tensor map label and size based on the denoiser props
@@ -79,7 +78,7 @@ export function determineTensorMap(props: DenoiserProps) {
     let tensorMapLabel = props.filterType;
     tensorMapLabel += props.hdr ? '_hdr' : '_ldr';
     // if you use cleanAux you MUST provide both albedo and normal
-    if (props.cleanAux) tensorMapLabel += '_calb_cnrm';
+    if (props.useAlbedo && props.useNormal && props.cleanAux) tensorMapLabel += '_calb_cnrm';
     else {
         tensorMapLabel += props.useAlbedo ? '_alb' : '';
         tensorMapLabel += props.useNormal ? '_nrm' : '';
@@ -103,15 +102,18 @@ export function determineTensorMap(props: DenoiserProps) {
 //adjust the size based on the input tensor size
 export function adjustSize(denoiser: Denoiser, options: InputOptions) {
     const { height, width } = options;
+    if (!height || !width) return;
     if (height !== denoiser.height || width !== denoiser.width) {
+        console.log('Values before adjustment:', denoiser.width, denoiser.height, width, height);
         if (height) denoiser.height = height;
         if (width) denoiser.width = width;
+        console.log('Denoiser: Adjusted size to', denoiser.width, denoiser.height);
     }
-    console.log('Denoiser: Adjusted size to', denoiser.width, denoiser.height);
 }
 // prepare and process input tensors
 export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'albedo' | 'normal', inputTensor: tf.Tensor3D, options: InputOptions) {
-    if (name === 'albedo') denoiser.props.useAlbedo = true;
+    if (name === 'color') denoiser.props.useColor = true;
+    else if (name === 'albedo') denoiser.props.useAlbedo = true;
     else if (name === 'normal') denoiser.props.useNormal = true;
     //options
     const { flipY, colorspace, channels } = options;
@@ -126,7 +128,6 @@ export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'al
         // leaveing seperate incase we want to add handing
         return toReturn;
     });
-    logMemoryUsage('After Input Processing');
     // if the channels is 4 we need to strip the alpha channel
     if (!channels) {
         // split the alpha channel from the rgb data (NOTE: destroys the baseTensor)
@@ -135,7 +136,6 @@ export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'al
         // we only care about the alpha of the color input
         if (name === 'color') denoiser.inputAlpha = alpha;
         else alpha.dispose();
-        logMemoryUsage('After Alpha Split');
     } else denoiser.setInputTensor(name, baseTensor);
 }
 
@@ -169,14 +169,16 @@ export async function handleModelInput(denoiser: Denoiser): Promise<tf.Tensor4D>
         // Reshape for batch size
         return concatenatedImage.expandDims(0) as tf.Tensor4D; // Now shape is [1, height, width, 9]
     });
-    logMemoryUsage('After Model Input Concatenation');
-    return toReturn;
+    // dispose of the input tensors
+    color.dispose();
+    if (albedo) albedo.dispose();
+    if (normal) normal.dispose();
 
+    return toReturn;
 }
 // Take the model output and ready it to be returned
 
 export async function handleModelOutput(denoiser: Denoiser, result: tf.Tensor4D): Promise<tf.Tensor3D> {
-    memoryStats('Before Output Processing');
     const outputImage = tf.tidy(() => {
         let output = result.squeeze() as tf.Tensor3D;
         // With float32 we had strange 1.0000001 values this limits to expected outputs
@@ -189,7 +191,6 @@ export async function handleModelOutput(denoiser: Denoiser, result: tf.Tensor4D)
         result.dispose();
         return output;
     });
-    memoryStats('After Output Processing');
     // if there is an old output tensor dispose of it
     if (denoiser.oldOutputTensor) denoiser.oldOutputTensor.dispose();
     denoiser.oldOutputTensor = outputImage;
