@@ -2,7 +2,11 @@
     "linter": {
         "rules": {
             "style": {
-                "noNonNullAssertion": "off"
+                "noNonNullAssertion": "off",
+                "useSingleVarDeclarator": "off"
+            },
+            "complexity": {
+                "noForEach": "off"
             }
         }
     }

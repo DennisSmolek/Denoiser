@@ -6,9 +6,9 @@ import "dropzone/dist/dropzone.css";
 
 //* Denoising ===========================================
 
-const denoiser = new Denoiser();
+const denoiser = new Denoiser("webgl");
 denoiser.debugging = true; // uncomment if you want detailed logs
-
+denoiser.useTiling = true; // uncomment if you want to use tiling
 // get the canvas for output
 const outputCanvas = document.getElementById("output") as HTMLCanvasElement;
 denoiser.setCanvas(outputCanvas);

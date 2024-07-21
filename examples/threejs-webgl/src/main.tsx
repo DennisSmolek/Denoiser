@@ -39,7 +39,7 @@ function setupDenoising() {
 	button.disabled = false;
 
 	// add an execution listener
-	denoiser.onExecute((outputTexture) => {
+	denoiser.onExecute((outputTexture: WebGLTexture) => {
 		console.log("Denoising complete", outputTexture);
 		renderer.mergeThenRender(outputTexture);
 		// this tells the system we want a webGL texture
@@ -54,7 +54,11 @@ async function doDenoise() {
 	const threeTexture = await renderer.loadTexture("./noisey.jpg");
 	const noiseyTexture = await renderer.renderToWebGLTexture(threeTexture);
 
-	denoiser.setInputTexture("color", noiseyTexture, 720, 1280, 4, true);
+	await denoiser.setInputTexture("color", noiseyTexture, {
+		height: 720,
+		width: 1280,
+		flipY: true,
+	});
 	// pass null as we set the buffer manually
 	denoiser.execute(null, albedo, normal);
 

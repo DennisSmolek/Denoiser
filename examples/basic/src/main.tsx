@@ -4,6 +4,8 @@ import "./index.css";
 //* Denoising ===========================================
 
 const denoiser = new Denoiser();
+//denoiser.usePassThrough = true;
+denoiser.debugging = true;
 // denoiser.debugging = true; // uncomment if you want detailed logs
 
 // Helper to know when the denoiser is ready, not needed

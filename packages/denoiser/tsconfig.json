@@ -16,12 +16,15 @@
         "noUnusedParameters": true,
         "noImplicitReturns": true,
         "skipLibCheck": true,
-        "typeRoots": ["./types"],
+        "typeRoots": ["./types","src/**/*"],
         "baseUrl": "./",
         "rootDir": "./src",
         "allowSyntheticDefaultImports": true,
         "outDir": "./dist",
         "jsx": "react"
     },
-    "files": ["./src/index.ts"]
+    "files": ["./src/index.ts"],
+    
+        "include": ["src/**/*", "types/**/*"]
+      
 }
