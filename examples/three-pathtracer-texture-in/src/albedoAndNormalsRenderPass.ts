@@ -5,11 +5,13 @@ export class AlbedoNormalPass {
     private originalMaterials: Map<THREE.Object3D, THREE.Material | THREE.Material[]>;
     private albedoMaterials: Map<THREE.Object3D, THREE.Material | THREE.Material[]>;
     private samples: number;
+    private useWorldSpaceNormals: boolean;
 
-    constructor(samples = 4) {
+    constructor(samples = 4, useWorldSpaceNormals = true) {
         this.originalMaterials = new Map();
         this.albedoMaterials = new Map();
         this.samples = samples;
+        this.useWorldSpaceNormals = useWorldSpaceNormals;
 
         this.albedoNormalMaterial = new THREE.RawShaderMaterial({
             vertexShader: `
@@ -19,78 +21,93 @@ export class AlbedoNormalPass {
 
         out vec2 vUv;
         out vec3 vNormal;
-        out vec4 vPosition;
+        out vec3 vWorldPosition;
 
+        uniform mat4 modelMatrix;
         uniform mat4 modelViewMatrix;
         uniform mat4 projectionMatrix;
         uniform mat3 normalMatrix;
 
         void main() {
-          vUv = uv;
-          vec3 transformedNormal = normalMatrix * normal;
-          vNormal = normalize(transformedNormal);
-
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          vPosition = projectionMatrix * mvPosition;
-          gl_Position = vPosition;
+            vUv = uv;
+            vNormal = normalMatrix * normal;
+            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = worldPosition.xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
             fragmentShader: `
-      precision highp float;
-      precision highp int;
-      layout(location = 0) out vec4 gAlbedo;
-      layout(location = 1) out vec4 gNormal;
-      
-      uniform vec3 color;
-      uniform sampler2D map;
-      uniform bool useMap;
-      uniform vec2 resolution;
-      uniform int samples;
+        precision highp float;
+        precision highp int;
+        
+        layout(location = 0) out vec4 gAlbedo;
+        layout(location = 1) out vec4 gNormal;
 
-      in vec2 vUv;
-      in vec3 vNormal;
-      in vec4 vPosition;
+        uniform vec3 color;
+        uniform sampler2D map;
+        uniform bool useMap;
+        uniform vec2 resolution;
+        uniform int samples;
+        uniform bool useWorldSpaceNormals;
 
-      vec4 getAlbedo(vec2 uv) {
-          if (useMap) {
-              return texture(map, uv);
-          }
-          return vec4(color, 1.0);
-      }
+        in vec2 vUv;
+        in vec3 vNormal;
+        in vec3 vWorldPosition;
 
-      void main() {
-          vec2 pixelSize = 1.0 / resolution;
-          vec3 albedoSum = vec3(0.0);
-          vec3 normalSum = vec3(0.0);
+        vec3 getAlbedo(vec2 uv) {
+            if (useMap) {
+                return texture(map, uv).rgb;
+            }
+            return color;
+        }
 
-          for (int i = 0; i < samples; i++) {
-              for (int j = 0; j < samples; j++) {
-                  vec2 offset = vec2(float(i), float(j)) / float(samples) - 0.5;
-                  vec2 sampleUv = vUv + offset * pixelSize;
-                  
-                  // Sample albedo
-                  albedoSum += getAlbedo(sampleUv).rgb;
+        void main() {
+            vec2 pixelSize = 1.0 / resolution;
+            vec3 albedoSum = vec3(0.0);
+            vec3 normalSum = vec3(0.0);
 
-                  // Sample normal
-                  vec3 ddx = dFdx(vPosition.xyz);
-                  vec3 ddy = dFdy(vPosition.xyz);
-                  vec3 sampleNormal = normalize(cross(ddx, ddy));
-                  normalSum += sampleNormal;
-              }
-          }
+            for (int i = 0; i < samples; i++) {
+                for (int j = 0; j < samples; j++) {
+                    vec2 offset = vec2(float(i), float(j)) / float(samples) - 0.5;
+                    vec2 sampleUv = vUv + offset * pixelSize;
+                    
+                    // Sample albedo
+                    vec3 albedo = getAlbedo(sampleUv);
+                    albedoSum += albedo;
 
-          // Average the samples
-          float sampleCount = float(samples * samples);
-          gAlbedo = vec4(albedoSum / sampleCount, 1.0);
-          gNormal = vec4(normalize(normalSum) * 0.5 + 0.5, 1.0);
-      }
-    `,
+                    // Sample normal
+                    vec3 normal;
+                    if (useWorldSpaceNormals) {
+                        vec3 dPdx = dFdx(vWorldPosition);
+                        vec3 dPdy = dFdy(vWorldPosition);
+                        normal = normalize(cross(dPdx, dPdy));
+                    } else {
+                        normal = normalize(vNormal);
+                    }
+                    normalSum += normal;
+                }
+            }
+
+            // Average the samples
+            float sampleCount = float(samples * samples);
+            vec3 finalAlbedo = albedoSum / sampleCount;
+            vec3 finalNormal = normalize(normalSum / sampleCount);
+
+            // Clamp albedo to [0, 1] range
+            finalAlbedo = clamp(finalAlbedo, 0.0, 1.0);
+
+            // Output to G-Buffer
+            gAlbedo = vec4(finalAlbedo, 1.0);
+            gNormal = vec4(finalNormal, 1.0);  // Output normals directly in [-1, 1] range
+        }
+      `,
             uniforms: {
                 color: { value: new THREE.Color(1, 1, 1) },
                 map: { value: null },
                 useMap: { value: false },
                 resolution: { value: new THREE.Vector2() },
-                samples: { value: this.samples }
+                samples: { value: this.samples },
+                useWorldSpaceNormals: { value: this.useWorldSpaceNormals }
             },
             glslVersion: THREE.GLSL3
         });
@@ -119,21 +136,21 @@ export class AlbedoNormalPass {
     }
 
     private swapMaterials(object: THREE.Object3D) {
-        if (object && (object as THREE.Mesh).material) {
+        if (object instanceof THREE.Mesh && object.material) {
             if (!this.originalMaterials.has(object))
-                this.originalMaterials.set(object, (object as THREE.Mesh).material);
+                this.originalMaterials.set(object, object.material);
 
             if (this.albedoMaterials.has(object)) {
-                (object as THREE.Mesh).material = this.albedoMaterials.get(object)!;
+                object.material = this.albedoMaterials.get(object)!;
                 return;
             }
-            const material = (object as THREE.Mesh).material as THREE.MeshStandardMaterial;
+            const material = object.material as THREE.MeshStandardMaterial;
             const newAlbedoMaterial = this.albedoNormalMaterial.clone();
             if (material.color) newAlbedoMaterial.uniforms.color.value.copy(material.color);
             newAlbedoMaterial.uniforms.map.value = material.map;
             newAlbedoMaterial.uniforms.useMap.value = !!material.map;
             this.albedoMaterials.set(object, newAlbedoMaterial);
-            (object as THREE.Mesh).material = newAlbedoMaterial;
+            object.material = newAlbedoMaterial;
         }
 
         object.children.forEach(child => this.swapMaterials(child));
@@ -146,5 +163,14 @@ export class AlbedoNormalPass {
             }
         });
         this.originalMaterials.clear();
+    }
+
+    setUseWorldSpaceNormals(value: boolean) {
+        this.useWorldSpaceNormals = value;
+        this.albedoMaterials.forEach((material) => {
+            if (material instanceof THREE.ShaderMaterial) {
+                material.uniforms.useWorldSpaceNormals.value = value;
+            }
+        });
     }
 }

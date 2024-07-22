@@ -94,6 +94,7 @@ export class GPUTensorTiler {
                 }
                 this.logMemoryUsage(`After slicing batch ${batch + 1}/${batches}`);
 
+
                 this.startTimer(`predictBatch${batch + 1}`);
                 const batchInput = tf.concat(batchTiles, 0);
                 const batchOutput = this.model.predict(batchInput) as tf.Tensor4D;
@@ -220,14 +221,17 @@ export class GPUTensorTiler {
     }
 
     startTimer(name: string) {
+        if (!this.debugMode) return;
         this.timers[`${name}In`] = performance.now();
     }
     stopTimer(name: string) {
+        if (!this.debugMode) return;
         this.timers[`${name}Out`] = performance.now();
         this.stats[name] = this.timers[`${name}Out`] - this.timers[`${name}In`];
     }
     logResults() {
-        console.log('Tiler Results:');
+        if (!this.debugMode) return;
+        console.log('Tiler Results :');
         console.table(this.stats);
     }
     dispose() {

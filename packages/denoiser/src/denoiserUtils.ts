@@ -64,6 +64,8 @@ export async function setupBackend(denoiser: Denoiser, prefered = 'webgl', canva
 
     //@ts-ignore
     denoiser.gl = tf.engine().findBackend('denoiser-webgl').gpgpu.gl;
+    // see what happens if we force textures to be f16
+    tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
     console.log('%c Denoiser: Backend set to custom webgl', 'background: orange; color: white;');
     denoiser.usingCustomBackend = true;
     denoiser.backendReady = true;

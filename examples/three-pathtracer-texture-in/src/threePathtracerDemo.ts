@@ -35,6 +35,11 @@ export class Renderer {
         pathtracerEnabled: true,
         useFast: true,
         sampleCount: 0,
+        outSpace: 2,
+        ptOutSpace: 2,
+        denoiserInSpace: 0,
+        toneMapping: THREE.ACESFilmicToneMapping,
+        tonemappingExposure: 1
 
     };
     // stats for output
@@ -95,7 +100,7 @@ export class Renderer {
 
     constructor(canvas: HTMLCanvasElement) {
         this.renderer = new THREE.WebGLRenderer({ canvas, });
-        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        //this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
         // Set initial size
         //this.setSize(canvas.width, canvas.height);
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -197,9 +202,9 @@ export class Renderer {
         this.backdrop.visible = this.params.showBackdrop;
         this.scene.add(this.backdrop);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        this.scene.add(ambientLight);
-        this.scene.add(new THREE.DirectionalLight(0xffffff, 0.5));
+        //const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        //this.scene.add(ambientLight);
+        // this.scene.add(new THREE.DirectionalLight(0xffffff, 0.5));
         this.scene.add(this.camera);
         this.camera.position.set(-3.589, 1.17, 5.64);
         this.controls.target.set(-0.01, 2.13, -0.65)
@@ -236,6 +241,11 @@ export class Renderer {
             uniform float dBlend;
             uniform bool canvasIn;
             uniform bool readingPT;
+            uniform int outputSpace;
+            uniform int ptOutputSpace;
+            uniform int denoiserInSpace;
+
+
             varying vec2 vUv;
 
             vec4 LinearToSRGB(vec4 value) {
@@ -250,12 +260,23 @@ export class Renderer {
             vec4 finalOut;
             vec4 tBase = texture2D(color, vUv);
             vec4 pOut = mix(tBase, texture2D(pathtraced, vUv), pBlend);
-            vec4 dOut;
+            vec4 finalDenoised = texture2D(denoised, vUv);
             if(canvasIn) {
-                    dOut = mix(pOut, SRGBToLinear(texture2D(denoised, vUv)), dBlend);
-            } else {
-                    dOut = mix(pOut, texture2D(denoised, vUv), dBlend);
+                finalDenoised = SRGBToLinear(finalDenoised);
             }
+                switch(denoiserInSpace) {
+                    case 1:
+                        finalDenoised = SRGBToLinear(finalDenoised);
+                        break;
+                    case 2:
+                        finalDenoised = LinearToSRGB(finalDenoised);
+                        break;
+                    default:
+                        break;
+                }
+
+            vec4 dOut = mix(pOut, finalDenoised , dBlend);
+            
             switch (base) {
                 case 1:
                     finalOut = tBase;
@@ -270,22 +291,38 @@ export class Renderer {
                     finalOut = texture2D(pathtraced, vUv);
                     break;
                 case 5:
-                    if(canvasIn) {
-                                finalOut = SRGBToLinear(texture2D(denoised, vUv));
-                    } else {
-                            finalOut = texture2D(denoised, vUv);
-                    }
+                    finalOut = finalDenoised;
                     break;
                default:
                     finalOut = dOut; 
                     break;
             }
             if(readingPT) {
-                gl_FragColor = texture2D(pathtraced,vUv);
+                vec4 ptOut = texture2D(pathtraced, vUv);
+                switch(ptOutputSpace) {
+                    case 1:
+                        ptOut = SRGBToLinear(ptOut);
+                        break;
+                    case 2:
+                        ptOut = LinearToSRGB(ptOut);
+                        break;
+                    default:
+                        break;
                 }
-                else {
-            gl_FragColor = LinearTosRGB(finalOut);
+            } else {
+                switch(outputSpace) {
+                    case 1:
+                        finalOut = SRGBToLinear(finalOut);
+                        break;
+                    case 2:
+                        finalOut = LinearToSRGB(finalOut);
+                        break;
+                    default:
+                        
+                        break;
+                }
             }
+            gl_FragColor = finalOut;
             
           }
         `,
@@ -300,10 +337,18 @@ export class Renderer {
                     dBlend: { value: 0.0 },
                     canvasIn: { value: false },
                     readingPT: { value: false },
+                    outputSpace: { value: 2 },
+                    ptOutputSpace: { value: 2 },
+                    denoiserInSpace: { value: 0 },
                 }
             })
         );
         this.flatScene.add(this.fullscreenQuad);
+    }
+    // move me later
+    setSpaceValue(space: string, value: number) {
+        //@ts-ignore
+        this.fullscreenQuad!.material.uniforms[space].value = value;
     }
     // Setup controls
     setupPane() {
@@ -318,6 +363,8 @@ export class Renderer {
             rows: 2
         });
         this.pane.addBinding(this.params, 'sampleCount', { label: 'Samples', readonly: true });
+
+
         const options = this.pane.addFolder({ title: 'Options', expanded: false, });
         const envOptions = Object.entries(envMaps).map(([key, value]) => ({ text: key, value: value }));
         options.addBinding(this.params, 'envmapUrl', {
@@ -342,6 +389,46 @@ export class Renderer {
             // we also have to update the scene
             this.sceneUpdated();
         });
+        // Renderer Options
+        const rendererFolder = options.addFolder({ title: 'Renderer', expanded: false, });
+        // dropdowns for colorspaces
+        rendererFolder.addBinding(this.params, 'outSpace', { label: 'Output Space', view: 'select', options: [{ text: 'Default', value: 0 }, { text: 'sRGB to linear', value: 1 }, { text: 'linear to srgb', value: 2 }] })
+            .on('change', () => this.setSpaceValue('outputSpace', this.params.outSpace));
+
+        rendererFolder.addBinding(this.params, 'ptOutSpace', { label: 'PT Output Space', view: 'select', options: [{ text: 'Default', value: 0 }, { text: 'sRGB to linear', value: 1 }, { text: 'linear to srgb', value: 2 }] })
+            .on('change', () => this.setSpaceValue('ptOutputSpace', this.params.ptOutSpace));
+        rendererFolder.addBinding(this.params, 'denoiserInSpace', { label: 'Denoiser Input Space', view: 'select', options: [{ text: 'Default', value: 0 }, { text: 'sRGB to linear', value: 1 }, { text: 'linear to srgb', value: 2 }] })
+            .on('change', () => this.setSpaceValue('denoiserInSpace', this.params.denoiserInSpace));
+        // renderer tonemapping
+        rendererFolder.addBlade({ view: 'separator' });
+        rendererFolder.addBinding(this.params, 'toneMapping', {
+            label: 'Tone Mapping',
+            view: 'select',
+            options: [
+                { text: 'No Tone Mapping', value: THREE.NoToneMapping },
+                { text: 'Linear Tone Mapping', value: THREE.LinearToneMapping },
+                { text: 'Reinhard Tone Mapping', value: THREE.ReinhardToneMapping },
+                { text: 'Cineon Tone Mapping', value: THREE.CineonToneMapping },
+                { text: 'ACES Filmic Tone Mapping', value: THREE.ACESFilmicToneMapping },
+                { text: 'AgX Tone Mapping', value: THREE.AgXToneMapping },
+                { text: 'Neutral Tone Mapping', value: THREE.NeutralToneMapping },
+                { text: 'Custom Tone Mapping', value: THREE.CustomToneMapping },
+            ],
+        }).on('change', () => {
+            console.log('Tonemapping before', this.renderer.toneMapping);
+            this.renderer.toneMapping = this.params.toneMapping;
+            console.log('Tonemapping after', this.renderer.toneMapping);
+        });
+        rendererFolder.addBinding(this.params, 'tonemappingExposure', {
+            label: 'Tonemapping Exposure',
+            view: 'slider',
+            min: -5,
+            max: 5,
+            step: 0.1
+        }).on('change', () => {
+            this.renderer.toneMappingExposure = this.params.tonemappingExposure;
+        });
+
         // Pathtracer options ----------------------------
         const ptFolder = options.addFolder({ title: 'Pathtracer', expanded: false, });
         ptFolder.addBinding(this.params, 'pathtracerEnabled', { label: 'Enable Pathtracer' })
@@ -456,8 +543,7 @@ export class Renderer {
         //this.denoiser.flipOutputY = true;
 
         // for debugging dump the denoiser to the rawOutput canvas
-        //const rawOutputCanvas = document.getElementById("rawOutput") as HTMLCanvasElement;
-        //this.denoiser.setCanvas(rawOutputCanvas);
+        //this.denoiser.setCanvas(document.getElementById("rawOutput") as HTMLCanvasElement);
 
         this.denoiser.onBackendReady(() => {
             // start the renderer and let other systems know
