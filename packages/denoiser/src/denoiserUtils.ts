@@ -107,7 +107,7 @@ export function adjustSize(denoiser: Denoiser, options: InputOptions) {
         console.log('Values before adjustment:', denoiser.width, denoiser.height, width, height);
         if (height) denoiser.height = height;
         if (width) denoiser.width = width;
-        console.log('Denoiser: Adjusted size to', denoiser.width, denoiser.height);
+        if (denoiser.debugging) console.log('Denoiser: Adjusted size to', denoiser.width, denoiser.height);
     }
 }
 // prepare and process input tensors
@@ -140,10 +140,12 @@ export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'al
 }
 
 export async function handleModelInput(denoiser: Denoiser): Promise<tf.Tensor4D> {
+    // destroy the old model output to save some memory
+    if (denoiser.oldOutputTensor) denoiser.oldOutputTensor.dispose();
     // take the set input tensors and concatenate them. ready things for model input
     // if we have direct input bypass everything
     if (denoiser.directInputTensor) return denoiser.directInputTensor.expandDims(0) as tf.Tensor4D;
-
+    denoiser.startTimer('modelInput');
     // TODO: if we ever want to denoise just normal or albedo this will have to change as it requires color
     const color = denoiser.inputTensors.get('color');
     const albedo = denoiser.inputTensors.get('albedo');
@@ -174,11 +176,12 @@ export async function handleModelInput(denoiser: Denoiser): Promise<tf.Tensor4D>
     if (albedo) albedo.dispose();
     if (normal) normal.dispose();
 
+    denoiser.stopTimer('modelInput');
     return toReturn;
 }
 // Take the model output and ready it to be returned
-
 export async function handleModelOutput(denoiser: Denoiser, result: tf.Tensor4D): Promise<tf.Tensor3D> {
+    denoiser.startTimer('modelOutput');
     const outputImage = tf.tidy(() => {
         let output = result.squeeze() as tf.Tensor3D;
         // With float32 we had strange 1.0000001 values this limits to expected outputs
@@ -194,8 +197,8 @@ export async function handleModelOutput(denoiser: Denoiser, result: tf.Tensor4D)
     // if there is an old output tensor dispose of it
     if (denoiser.oldOutputTensor) denoiser.oldOutputTensor.dispose();
     denoiser.oldOutputTensor = outputImage;
+    denoiser.stopTimer('modelOutput');
     return outputImage;
-
 }
 
 export async function handleCallback(denoiser: Denoiser, outputTensor: tf.Tensor3D, returnType: string, callback?: Function | undefined) {
@@ -207,8 +210,7 @@ export async function handleCallback(denoiser: Denoiser, outputTensor: tf.Tensor
         case 'webgpu':
             // WebGL and webGPU both require the alpha channel
             if (!denoiser.inputAlpha) data = concatenateAlpha3D(outputTensor).dataToGPU({ customTexShape: [denoiser.height, denoiser.width] });
-            else
-                data = outputTensor.dataToGPU({ customTexShape: [denoiser.height, denoiser.width] });
+            else data = outputTensor.dataToGPU({ customTexShape: [denoiser.height, denoiser.width] });
 
             toReturn = returnType === 'webgl' ? data.texture! : data.buffer!;
             if (!toReturn) throw new Error('Denoiser: Could not convert to GPU Accessible Tensor');
@@ -231,12 +233,6 @@ export async function handleCallback(denoiser: Denoiser, outputTensor: tf.Tensor
             toReturn = new ImageData(pixelData, denoiser.props.width, denoiser.props.height);
         }
     }
-    // if (denoiser.debugging) console.log(`Denoiser: Callback Prep duration: ${performance.now() - startTime}ms`);
-
     if (callback) callback(toReturn!);
     return toReturn!;
-
 }
-
-
-// Add other utility functions as needed

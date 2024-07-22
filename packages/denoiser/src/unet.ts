@@ -2,7 +2,6 @@
 import * as tf from '@tensorflow/tfjs';
 import type { Tensor4D, SymbolicTensor } from '@tensorflow/tfjs';
 import type { TensorMap } from './tza';
-import { memoryStats } from './utils';
 
 export type UnetProps = {
     weights: TensorMap,
@@ -61,10 +60,8 @@ export class UNet {
         const input = tf.input({ shape: [this.height, this.width, this.inChannels] });
         const output = input;
         this.model = tf.model({ inputs: input, outputs: output });
-        memoryStats('debug build before compile')
         // because this should be a 0 process pass through lets check equality
         this.model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
-        memoryStats('debug build after compile')
         return this.model;
     }
     async build(large = false) {

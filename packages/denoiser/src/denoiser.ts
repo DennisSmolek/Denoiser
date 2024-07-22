@@ -2,7 +2,7 @@
 import * as tf from '@tensorflow/tfjs';
 import { Weights } from './weights';
 import { UNet } from './unet';
-import { getCorrectImageData, hasSizeMissmatch } from './utils';
+import { formatTime, getCorrectImageData, hasSizeMissmatch } from './utils';
 import { GPUTensorTiler } from './tiler';
 import { WebGLStateManager } from './webglStateManager';
 import { setupBackend, determineTensorMap, handleModelInput, handleModelOutput, handleCallback, adjustSize, handleInputTensors } from './denoiserUtils';
@@ -14,8 +14,6 @@ import type { TensorMap, DenoiserProps, ImgInput, InputOptions, ListenerCalback,
 export class Denoiser {
     // counter to how many times the model was built
     timesGenerated = 0;
-    private _gl?: WebGL2RenderingContext;
-    device?: GPUDevice;
     //backend?: tf.MathBackendWebGL | WebGPUBackend | tf.MathBackendCPU;
     backend?: tf.KernelBackend
     backendLoaded = false;
@@ -46,12 +44,6 @@ export class Denoiser {
     outputMode: 'imgData' | 'webgl' | 'webgpu' | 'tensor' | 'float32' = 'imgData';
     flipOutputY = false;
 
-    //* Debug Props ---
-    canvas?: HTMLCanvasElement;
-    outputToCanvas = false;
-    debugging = false;
-    usePassThrough = false;
-
     //* Tiling ---
     _useTiling = false;
     _tilingUserBlocked = false
@@ -59,7 +51,6 @@ export class Denoiser {
     tileSize = 256;
 
     //* Internal -----------------------------------
-
     // listeners for execution callbacks
     private listeners: Map<ListenerCalback, string> = new Map();
     private backendListeners: Set<ListenerCalback> = new Set();
@@ -72,17 +63,36 @@ export class Denoiser {
 
     // WebGL ---
     public webglStateManager?: WebGLStateManager;
+    private _gl?: WebGL2RenderingContext;
+    device?: GPUDevice;
 
     // holder for weights instance where we get tensorMaps
     private weights: Weights;
     private activeTensorMap!: TensorMap;
     private isDirty = true;
 
+    //* Debugging -----------------------------------
+    canvas?: HTMLCanvasElement;
+    outputToCanvas = false;
+    debugging = false;
+    usePassThrough = false;
+
+    stats: { [key: string]: number | string } = {};
+    timers: { [key: string]: number } = {
+        buildStart: 0,
+        buildEnd: 0,
+        executionStart: 0,
+        executionEnd: 0,
+        tilingStart: 0,
+        tilingEnd: 0
+
+    };
+
     constructor(preferedBackend = 'webgl', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
         this.weights = Weights.getInstance();
+        tf.enableProdMode();
         console.log('%c Denoiser initialized..', 'background: #d66b00; color: white;');
         setupBackend(this, preferedBackend, canvasOrDevice);
-        tf.enableProdMode();
     }
 
     //* Getters and Setters ------------------------------
@@ -164,8 +174,6 @@ export class Denoiser {
 
     //* Build the unet using props ------------------------
     async build() {
-        let startTime: number;
-        let endTime: number;
         const { tensorMapLabel, size } = determineTensorMap(this.props);
 
         if (this.debugging) console.log(`Denoiser: starting Build with TensorMap: ${tensorMapLabel}...`);
@@ -184,22 +192,16 @@ export class Denoiser {
         if (this.unet) this.unet.dispose();
         if (this.tiler) this.tiler.dispose();
 
-        if (this.debugging) startTime = performance.now();
+        this.startTimer('build');
         this.unet = new UNet({ weights: this.activeTensorMap, size, height, width, channels });
 
         const model = (this.usePassThrough) ? await this.unet.debugBuild() : await this.unet.build();
         if (!model) throw new Error('UNet Model failed to build');
 
         //* Tiling
-        if (this.useTiling) {
-            this.tiler = new GPUTensorTiler(model, this.tileSize || 256);
-            console.log('%c Denoiser: Using Tiling Output', 'background: green; color: white;');
-        }
+        if (this.useTiling) this.tiler = new GPUTensorTiler(model, this.tileSize || 256);
 
-        if (this.debugging) {
-            endTime = performance.now();
-            if (this.debugging) console.log('Denoiser: Build Time:', endTime - startTime!);
-        }
+        this.stopTimer('build');
         this.timesGenerated++;
         this.isDirty = false;
     }
@@ -240,10 +242,8 @@ export class Denoiser {
 
     // actually execute the model with the set inputs of this class
     private async executeModel() {
-        let startTime: number;
         if (this.debugging) console.log('%c Denoiser: Denoising...', 'background: blue; color: white;');
-        if (this.debugging) startTime = performance.now();
-
+        this.startTimer('execution');
         // process and send the input to the model
         const inputTensor = await handleModelInput(this);
         //const inputTensor = GPUTensorTiler.generateSampleInput(this.props.height, this.props.width, 4);
@@ -252,24 +252,13 @@ export class Denoiser {
         if (this.isDirty) await this.build();
 
         // Execute model with tiling or standard
+        this.startTimer('tiling');
         const result = this.useTiling ? await this.tiler!.processLargeTensor(inputTensor)
             : await this.unet.execute(inputTensor);
+        this.stopTimer('tiling');
 
-        // this helps us debug input/output by making the model a pure pass through
-        /* if (this.usePassThrough && !this.props.useAlbedo) {
-             // check if its totally equal
-             const isEqual = tf.equal(inputTensor, result);
-             console.log('Make sure model is a pass trough:');
-             isEqual.all().print();
-         }*/
         // process the output
         const output = await handleModelOutput(this, result);
-
-        if (this.debugging) {
-            //console.log('Output Tensor')
-            //  output.print(); 
-            if (this.debugging) console.log(`Denoiser: Execution Time: ${Math.round(performance.now() - startTime!)}ms`);
-        }
         return this.handleReturn(output);
     }
 
@@ -289,7 +278,8 @@ export class Denoiser {
             toReturn = await handleCallback(this, outputTensor, this.outputMode);
 
         if (this.gl) this.webglStateManager?.saveState();
-
+        this.stopTimer('execution');
+        this.logStats();
         return toReturn;
     }
 
@@ -415,5 +405,25 @@ export class Denoiser {
         if (this.backendReady) listener(this.backend);
         else this.backendListeners.add(listener);
         return () => this.backendListeners.delete(listener);
+    }
+    //* Debuging ----------------------------------------
+    startTimer(name: string) {
+        if (!this.debugging) return;
+        this.timers[`${name}In`] = performance.now();
+    }
+    stopTimer(name: string) {
+        if (!this.debugging) return;
+        this.timers[`${name}Out`] = performance.now();
+        this.stats[name] = this.timers[`${name}Out`] - this.timers[`${name}In`];
+    }
+    logStats() {
+        if (!this.debugging) return;
+        console.log('%c Denoiser Stats:', 'background: #73BFB8; color: white');
+        // parse the times and give nicer formats
+        const formattedStats = Object.entries(this.stats).reduce((acc, [key, value]) => {
+            acc[key] = (typeof value === "string") ? value : formatTime(value as number);
+            return acc;
+        }, {} as { [key: string]: string });
+        console.table(formattedStats);
     }
 }
