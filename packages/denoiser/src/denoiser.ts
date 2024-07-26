@@ -54,6 +54,7 @@ export class Denoiser {
     // listeners for execution callbacks
     private listeners: Map<ListenerCalback, string> = new Map();
     private backendListeners: Set<ListenerCalback> = new Set();
+    private progressListeners: Set<(progress: number) => void> = new Set();
     // Model Props ---
     private unet!: UNet;
     private tiler?: GPUTensorTiler;
@@ -253,7 +254,7 @@ export class Denoiser {
 
         // Execute model with tiling or standard
         this.startTimer('tiling');
-        const result = this.useTiling ? await this.tiler!.processLargeTensor(inputTensor)
+        const result = this.useTiling ? await this.tiler!.processLargeTensor(inputTensor, this.handleProgress)
             : await this.unet.execute(inputTensor);
         this.stopTimer('tiling');
 
@@ -407,6 +408,18 @@ export class Denoiser {
     }
 
     //* Listeners ---------------------------------------
+
+    private handleProgress(progress: number) {
+        this.progressListeners.forEach((listener) => listener(progress));
+    }
+
+    // add a listener for progress of the tiler
+    onProgress(listener: (progress: number) => void) {
+        this.progressListeners.add(listener);
+        return () => this.progressListeners.delete(listener);
+    }
+
+
     // Add a listener to the denoiser with a return function to stop listening
     onExecute(listener: ListenerCalback, responseType: string) {
         this.listeners.set(listener, responseType);

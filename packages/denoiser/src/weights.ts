@@ -50,7 +50,8 @@ export class Weights {
     path?: string;
 
     // url to a remote source of the weights
-    url?: string;
+    url = 'https://cdn.jsdelivr.net/npm/denoiser/tzas';
+
 
     private constructor() {
         //console.log('Weights initialized...');
