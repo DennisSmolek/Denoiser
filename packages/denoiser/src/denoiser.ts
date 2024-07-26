@@ -286,6 +286,7 @@ export class Denoiser {
     //* Set the Inputs -----------------------------------
     // set the input tensor. Rarely accessed directly but used by all internals
     setInputTensor(name: 'color' | 'albedo' | 'normal', tensor: tf.Tensor3D) {
+        if (!tensor) throw new Error('Denoiser: No tensor provided');
         // destroy existing tensor
         this.inputTensors.get(name)?.dispose();
         this.inputTensors.set(name, tensor);
@@ -299,6 +300,7 @@ export class Denoiser {
 
     //set the image and tensor, normalize (potentailly) flipY if needed
     setInputImage(name: 'color' | 'albedo' | 'normal', imgData: ImgInput, flipY = false) {
+        if (!imgData) throw new Error('Denoiser: No image data provided');
         let finalData = imgData;
         // if input is color lets take the height and width and set it on this
         if (imgData instanceof HTMLImageElement && hasSizeMissmatch(imgData)) {
@@ -350,6 +352,7 @@ export class Denoiser {
 
     // for a webGPU buffer create and set it
     async setInputBuffer(name: 'color' | 'albedo' | 'normal', buffer: GPUBuffer, options: InputOptions = {}) {
+        if (!buffer) throw new Error('Denoiser: No buffer provided');
         if (name === 'color') adjustSize(this, options);
         const baseTensor = tf.tensor({ buffer: buffer }, [this.height, this.width, options.channels || 4], 'float32') as tf.Tensor3D;
         await handleInputTensors(this, name, baseTensor, options);
@@ -357,6 +360,7 @@ export class Denoiser {
 
     // for a webGL texture create and set it
     async setInputTexture(name: 'color' | 'albedo' | 'normal', texture: WebGLTexture, options: InputOptions = {}) {
+        if (!texture) throw new Error('Denoiser: No texture provided');
         if (name === 'color') adjustSize(this, options);
         const baseTensor = tf.tensor({ texture, height: this.height, width: this.width, channels: 'RGBA' }, [this.height, this.width, options.channels || 4], 'float32') as tf.Tensor3D;
         await handleInputTensors(this, name, baseTensor, options);
@@ -364,6 +368,7 @@ export class Denoiser {
 
     //* Data Input ---
     setInputData(name: 'color' | 'albedo' | 'normal', data: Float32Array | Uint8Array, options: InputOptions = {}) {
+        if (!data) throw new Error('Denoiser: No data provided');
         // check if data is a float32 and reject otherwise
         if (data.constructor !== Float32Array)
             throw new Error('Invalid Input data type. Must be a Float32Array');
