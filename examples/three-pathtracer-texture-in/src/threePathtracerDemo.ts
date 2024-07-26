@@ -110,8 +110,11 @@ export class Renderer {
         this.setupFlatScene();
         this.setupPathtracer();
         this.setupDenoiser();
+        this.setupProgressListeners();
         //bind the mouse so when the domElemnt is clicked we can hide the denoiser
         this.renderer.domElement.addEventListener('mousedown', () => this.hideDenoisedOutput());
+
+
     }
     //* Getters n Setters ----------------------------
     get gl() {
@@ -478,6 +481,25 @@ export class Renderer {
         }).on('change', () => this.updateBaseOutput(this.params.outputBase));
 
     }
+
+    setupProgressListeners() {
+        // wrapper for the span itself
+        const inProgressSpan = document.getElementById('denoising');
+        const progressOut = document.getElementById('progress');
+        this.denoiser.onProgress((progress: number) => {
+            if (0 < progress && progress < 1) {
+                inProgressSpan!.style.display = 'flex';
+                progressOut!.style.display = 'block';
+            }
+            else {
+                inProgressSpan!.style.display = 'none';
+                progressOut!.style.display = 'none';
+            }
+            progressOut!.innerHTML = `${progress * 100}%`;
+            console.log('Tiling Progress:', progress);
+        });
+
+    }
     //* Pathtracer Methods ----------------------------
 
     // Setup the pathtracer
@@ -571,6 +593,8 @@ export class Renderer {
             this.stats.denoising = false;
             console.log('Denoising Stats')
             console.table(this.stats);
+            const denoisedSpan = document.getElementById('denoised');
+            denoisedSpan!.style.display = 'block';
         }, 'webgl')
     }
 
@@ -613,6 +637,8 @@ export class Renderer {
         this.stats.inputHandleTime = performance.now() - this.timers.inputStartTime;
         console.log('Denoiser Input time', Math.round(this.stats.inputHandleTime));
 
+        const denoisedSpan = document.getElementById('denoised');
+        denoisedSpan!.style.display = 'none';
         //todo: with input mode set I should be able to pass these directly
         this.timers.executionStartTime = performance.now();
         this.denoiser.execute();

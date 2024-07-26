@@ -225,7 +225,18 @@ main {
   bottom: 4px;
 }
 #denoised {
-  display: false;
+  display: none;
+  
+  position: absolute;
+  bottom: 0;
+  left: -80px;
+}
+#denoising {
+  left: -124px;
+    bottom: px;
+    display: none;
+    flex-direction: row;
+    position: absolute;
 }
 
 #execute-button {

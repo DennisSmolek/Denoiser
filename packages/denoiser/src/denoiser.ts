@@ -254,7 +254,7 @@ export class Denoiser {
 
         // Execute model with tiling or standard
         this.startTimer('tiling');
-        const result = this.useTiling ? await this.tiler!.processLargeTensor(inputTensor, this.handleProgress)
+        const result = this.useTiling ? await this.tiler!.processLargeTensor(inputTensor, (progress) => this.handleProgress(progress))
             : await this.unet.execute(inputTensor);
         this.stopTimer('tiling');
 
