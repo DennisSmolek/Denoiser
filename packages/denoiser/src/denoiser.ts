@@ -393,6 +393,14 @@ export class Denoiser {
         this.isDirty = true;
     }
 
+    dispose() {
+        this.unet.dispose();
+        if (this.tiler) this.tiler.dispose();
+        this.inputTensors.forEach((tensor) => tensor.dispose());
+        if (this.inputAlpha) this.inputAlpha.dispose();
+        if (this.directInputTensor) this.directInputTensor.dispose();
+    }
+
     //* Listeners ---------------------------------------
     // Add a listener to the denoiser with a return function to stop listening
     onExecute(listener: ListenerCalback, responseType: string) {

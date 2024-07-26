@@ -52,7 +52,7 @@ export class GPUTensorTiler {
     }
 
     //* Core method, takes input and processes it
-    async processLargeTensor(input: tf.Tensor4D): Promise<tf.Tensor4D> {
+    async processLargeTensor(input: tf.Tensor4D, statusCallback?: (progress: number) => void): Promise<tf.Tensor4D> {
         this.logMemoryUsage('Start of processLargeTensor');
         this.startTimer('processLargeTensor');
 
@@ -67,84 +67,73 @@ export class GPUTensorTiler {
         const batches = Math.ceil(totalTiles / this.batchSize);
 
         const processedTiles: tf.Tensor4D[] = [];
-        this.startTimer('allbatches')
+        this.startTimer('allbatches');
+
         for (let batch = 0; batch < batches; batch++) {
             this.startTimer(`processLargeTensorBatch${batch + 1}`);
-            tf.tidy(() => {
+            const batchTiles = tf.tidy(() => {
                 const start = batch * this.batchSize;
                 const end = Math.min(start + this.batchSize, totalTiles);
 
-                const batchTiles: tf.Tensor4D[] = [];
-                for (let i = start; i < end; i++) {
-                    const y = Math.floor(i / tilesX);
-                    const x = i % tilesX;
+                return Array.from({ length: end - start }, (_, i) => {
+                    const index = start + i;
+                    const y = Math.floor(index / tilesX);
+                    const x = index % tilesX;
 
                     const [startY, curHeight] = this.getTileDims(y, height, tileHeight, strideY);
                     const [startX, curWidth] = this.getTileDims(x, width, tileWidth, strideX);
 
                     const tile = input.slice([0, startY, startX, 0], [1, curHeight, curWidth, channels]);
-                    const paddedTile = tile.pad([
+                    return tile.pad([
                         [0, 0],
                         [0, tileHeight - curHeight],
                         [0, tileWidth - curWidth],
                         [0, 0]
-                    ]);
-
-                    batchTiles.push(paddedTile as tf.Tensor4D);
-                }
-                this.logMemoryUsage(`After slicing batch ${batch + 1}/${batches}`);
-
-
-                this.startTimer(`predictBatch${batch + 1}`);
-                const batchInput = tf.concat(batchTiles, 0);
-                const batchOutput = this.model.predict(batchInput) as tf.Tensor4D;
-                this.stopTimer(`predictBatch${batch + 1}`);
-                this.logMemoryUsage(`After prediction of batch ${batch + 1}/${batches}`, '#1098F7');
-
-                // Split the batch output back into individual tiles
-                for (let i = 0; i < batchOutput.shape[0]; i++) {
-                    const processedTile = batchOutput.slice([i, 0, 0, 0], [1, tileHeight, tileWidth, 3]);
-                    processedTiles.push(tf.keep(processedTile));
-                }
-                this.logMemoryUsage(`After splitting batch ${batch + 1}/${batches}`);
+                    ]) as tf.Tensor4D;
+                });
             });
+
+            this.logMemoryUsage(`After slicing batch ${batch + 1}/${batches}`);
+
+            this.startTimer(`predictBatch${batch + 1}`);
+            const batchInput = tf.concat(batchTiles, 0);
+            const batchOutput = this.model.predict(batchInput) as tf.Tensor4D;
+            this.stopTimer(`predictBatch${batch + 1}`);
+            this.logMemoryUsage(`After prediction of batch ${batch + 1}/${batches}`, '#1098F7');
+
+            // Split the batch output back into individual tiles
+            for (let i = 0; i < batchOutput.shape[0]; i++) {
+                const processedTile = batchOutput.slice([i, 0, 0, 0], [1, tileHeight, tileWidth, 3]);
+                processedTiles.push(tf.keep(processedTile));
+            }
+
+            batchOutput.dispose();
+            batchInput.dispose();
+            batchTiles.forEach(tile => tile.dispose());
 
             this.logMemoryUsage(`After processing batch ${batch + 1}/${batches}`);
             this.stopTimer(`processLargeTensorBatch${batch + 1}`);
-            // Explicitly run garbage collection after each batch
-            //tf.disposeVariables();
-            await tf.nextFrame();  // Allow GPU to potentially free up memory
 
+            // Call the status callback if provided
+            if (statusCallback) {
+                const progress = (batch + 1) / batches;
+                statusCallback(progress);
+            }
+
+            // Allow the UI to update and potentially free up GPU memory
+            await tf.nextFrame();
         }
+
         this.stopTimer('allbatches');
         this.stopTimer('processLargeTensor');
+
         const result = this.reassembleTilesWithBlending(processedTiles, [batchSize, height, width, 3]);
         processedTiles.forEach(tile => tf.dispose(tile));
+
         this.logMemoryUsage('End of processLargeTensor');
         this.logResults();
+
         return result;
-    }
-
-    private createBlendingMask(): tf.Tensor2D {
-        if (this.blendingMask === null) {
-            this.startTimer('createBlendingMask');
-            this.blendingMask = tf.tidy(() => {
-                const [tileHeight, tileWidth] = this.tileSize;
-                const mask = tf.buffer([tileHeight, tileWidth]);
-
-                for (let i = 0; i < tileHeight; i++) {
-                    for (let j = 0; j < tileWidth; j++) {
-                        const yWeight = Math.min(i, tileHeight - 1 - i) / this.overlap;
-                        const xWeight = Math.min(j, tileWidth - 1 - j) / this.overlap;
-                        mask.set(Math.min(yWeight, xWeight, 1), i, j);
-                    }
-                }
-
-                return mask.toTensor();
-            }) as tf.Tensor2D;
-            this.stopTimer('createBlendingMask');
-        }
-        return this.blendingMask!;
     }
 
     private reassembleTilesWithBlending(tiles: tf.Tensor4D[], outputShape: [number, number, number, number]): tf.Tensor4D {
@@ -156,9 +145,6 @@ export class GPUTensorTiler {
         const strideX = tileWidth - this.overlap;
         const tilesY = Math.ceil(height / strideY);
         const tilesX = Math.ceil(width / strideX);
-
-        const blendingMask = this.createBlendingMask();
-
 
         let reassembled = tf.zeros(outputShape);
         let weights = tf.zeros([batchSize, height, width, 1]);
@@ -173,7 +159,10 @@ export class GPUTensorTiler {
 
                     const tile = tiles[tileIndex];
                     const slicedTile = tile.slice([0, 0, 0, 0], [1, curHeight, curWidth, channels]);
-                    const tileMask = blendingMask.slice([0, 0], [curHeight, curWidth]).expandDims(0).expandDims(-1);
+
+                    // Use an improved blending mask
+                    const tileMask = this.createImprovedBlendingMask(curHeight, curWidth).expandDims(0).expandDims(-1);
+
                     this.logMemoryUsage(`After slicing & masking tile ${tileIndex + 1}/${tiles.length}`);
                     const weightedTile = slicedTile.mul(tileMask);
                     const paddedWeightedTile = tf.pad(weightedTile, [
@@ -193,15 +182,14 @@ export class GPUTensorTiler {
                     this.logMemoryUsage(`After padding weights of tile ${tileIndex + 1}/${tiles.length}`);
                     return [paddedWeightedTile, paddedTileWeights];
                 });
-                // because of the functional nature of tensorflow this is leaving tensors hanging
-                // so we have to create, destroy the old one and then set the new one
+
                 const newTile = reassembled.add(paddedWeightedTile);
                 reassembled.dispose();
                 reassembled = newTile;
                 const newWeights = weights.add(paddedTileWeights);
                 weights.dispose();
                 weights = newWeights;
-                // now they are added and the sources can be destroyed
+
                 paddedWeightedTile.dispose();
                 paddedTileWeights.dispose();
                 this.stopTimer(`reassembleTile${tileIndex + 1}`);
@@ -210,14 +198,35 @@ export class GPUTensorTiler {
             }
         }
 
-        const toReturn = tf.tidy(() => reassembled.div(weights.add(1e-8)));
-        // destroy reassambled and weights
+        const result = tf.tidy(() => {
+            return reassembled.div(weights.add(1e-8));
+        });
+
         reassembled.dispose();
         weights.dispose();
         this.stopTimer('reassembleTilesWithBlending');
         this.logMemoryUsage('End of reassembleTilesWithBlending');
 
-        return toReturn as tf.Tensor4D;
+        return result as tf.Tensor4D;
+    }
+
+    private createImprovedBlendingMask(height: number, width: number): tf.Tensor2D {
+        return tf.tidy(() => {
+            const mask = tf.buffer([height, width]);
+
+            for (let i = 0; i < height; i++) {
+                for (let j = 0; j < width; j++) {
+                    const yWeight = Math.min(i, height - 1 - i) / this.overlap;
+                    const xWeight = Math.min(j, width - 1 - j) / this.overlap;
+                    // Use a smoother transition function (quintic smoothstep)
+                    const smoothWeight = Math.min(yWeight, xWeight);
+                    const w = smoothWeight * smoothWeight * smoothWeight * (smoothWeight * (smoothWeight * 6 - 15) + 10);
+                    mask.set(w, i, j);
+                }
+            }
+
+            return mask.toTensor();
+        }) as tf.Tensor2D;
     }
 
     startTimer(name: string) {
