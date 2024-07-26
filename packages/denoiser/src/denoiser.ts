@@ -214,16 +214,16 @@ export class Denoiser {
         if (colorInput || albedoInput || normalInput) switch (this.inputMode) {
             case 'webgl':
                 if (!this.height || !this.width) throw new Error('Denoiser: Height and Width must be set when executing with webGL input.');
-                if (colorInput) this.setInputTexture('color', colorInput as WebGLTexture);
-                if (albedoInput) this.setInputTexture('albedo', albedoInput as WebGLTexture);
-                if (normalInput) this.setInputTexture('normal', normalInput as WebGLTexture);
+                if (colorInput) await this.setInputTexture('color', colorInput as WebGLTexture);
+                if (albedoInput) await this.setInputTexture('albedo', albedoInput as WebGLTexture);
+                if (normalInput) await this.setInputTexture('normal', normalInput as WebGLTexture);
                 break;
 
             case 'webgpu':
                 if (!this.height || !this.width) throw new Error('Denoiser: Height and Width must be set when executing with webGPU input.');
-                if (colorInput) this.setInputBuffer('color', colorInput as GPUBuffer);
-                if (albedoInput) this.setInputBuffer('albedo', albedoInput as GPUBuffer);
-                if (normalInput) this.setInputBuffer('normal', normalInput as GPUBuffer);
+                if (colorInput) await this.setInputBuffer('color', colorInput as GPUBuffer);
+                if (albedoInput) await this.setInputBuffer('albedo', albedoInput as GPUBuffer);
+                if (normalInput) await this.setInputBuffer('normal', normalInput as GPUBuffer);
                 break;
 
             case 'tensor':
@@ -421,7 +421,7 @@ export class Denoiser {
 
 
     // Add a listener to the denoiser with a return function to stop listening
-    onExecute(listener: ListenerCalback, responseType: string) {
+    onExecute(listener: ListenerCalback, responseType = this.outputMode) {
         this.listeners.set(listener, responseType);
         return () => this.listeners.delete(listener);
     }
