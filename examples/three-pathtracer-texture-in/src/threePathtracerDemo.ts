@@ -479,7 +479,13 @@ export class Renderer {
                 { text: 'Denoised', value: 5 },
             ],
         }).on('change', () => this.updateBaseOutput(this.params.outputBase));
-
+        const abortButton = this.pane.addButton({
+            title: 'Abort Denoising'
+        });
+        abortButton.on('click', () => {
+            this.denoiser.abort();
+            this.denoising = false;
+        });
     }
 
     setupProgressListeners() {

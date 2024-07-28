@@ -3,7 +3,7 @@ import * as tf from '@tensorflow/tfjs';
 import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
 import type { Denoiser } from './denoiser';
 import type { DenoiserProps, InputOptions } from 'types/types';
-import { concatenateAlpha3D, splitRGBA3D, tensorLinearToSRGB } from './utils';
+import { concatenateAlpha3D, splitRGBA3D } from './utils';
 
 export async function setupBackend(denoiser: Denoiser, prefered = 'webgl', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
     // do the easy part first
@@ -118,11 +118,10 @@ export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'al
     else if (name === 'albedo') denoiser.props.useAlbedo = true;
     else if (name === 'normal') denoiser.props.useNormal = true;
     //options
-    const { flipY, colorspace, channels } = options;
+    const { flipY, channels } = options;
     const baseTensor = tf.tidy(() => {
         let toReturn = inputTensor;
         if (flipY) toReturn = tf.reverse(toReturn, [0]);
-        if (colorspace === 'linear') toReturn = tensorLinearToSRGB(toReturn);
         // if we are a normal we need to normalize the tensor into the range [-1, 1]
         if (name === 'normal') toReturn = toReturn.sub(0.5).mul(2);
         // destroy the original input tensor

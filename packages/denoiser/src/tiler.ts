@@ -1,25 +1,39 @@
 import * as tf from '@tensorflow/tfjs';
 import { formatBytes, isMobile } from './utils';
 
+type TilerOptions = {
+    tileSize?: number;
+    overlap?: number;
+    batchSize?: number;
+    debugging?: boolean;
+    srgb?: boolean;
+};
+
 export class GPUTensorTiler {
     private model: tf.LayersModel;
     private tileSize: [number, number];
     private overlap: number;
     private batchSize: number;
-    private blendingMask: tf.Tensor2D | null = null;
-    private debugMode: boolean;
+    //private blendingMask: tf.Tensor2D | null = null;
+    private blendingMasks: Map<string, tf.Tensor2D> = new Map();
+    private debugging: boolean;
+    private aborting = false;
+    public srgb: boolean;
 
     //* Debugging
     timers: { [key: string]: number } = {};
     stats: { [key: string]: number } = {};
 
-    constructor(model: tf.LayersModel, tileSize: number, overlap = 16, batchSize?: number, debugMode = false) {
+    constructor(model: tf.LayersModel, options?: TilerOptions) {
+
         console.log('%c Denoiser: Using Tiling Output', 'background: green; color: white;');
         this.model = model;
+        const tileSize = options?.tileSize || 256;
         this.tileSize = [tileSize, tileSize];
-        this.overlap = overlap;
-        this.batchSize = batchSize || this.calculateBatchSize();
-        this.debugMode = debugMode;
+        this.overlap = options?.overlap || 32;
+        this.batchSize = options?.batchSize || this.calculateBatchSize();;
+        this.debugging = options?.debugging || false;
+        this.srgb = options?.srgb || false;
     }
 
     private calculateBatchSize(): number {
@@ -37,7 +51,7 @@ export class GPUTensorTiler {
 
     // TODO move to central location
     private logMemoryUsage(stage: string, bgColor = 'orange') {
-        if (this.debugMode) {
+        if (this.debugging) {
             const memoryInfo = tf.memory() as any;
             console.log(`%cMemory usage at ${stage}:`, `background: ${bgColor}; color: white;`);
             console.table({
@@ -52,11 +66,12 @@ export class GPUTensorTiler {
     }
 
     //* Core method, takes input and processes it
-    async processLargeTensor(input: tf.Tensor4D, statusCallback?: (progress: number) => void): Promise<tf.Tensor4D> {
+    async processLargeTensor(rawInput: tf.Tensor4D, statusCallback?: (progress: number) => void): Promise<tf.Tensor4D> {
         this.logMemoryUsage('Start of processLargeTensor');
         this.startTimer('processLargeTensor');
+        if (this.aborting) this.aborting = false;
 
-        const [batchSize, height, width, channels] = input.shape;
+        const [batchSize, height, width, channels] = rawInput.shape;
         const [tileHeight, tileWidth] = this.tileSize;
         const strideY = tileHeight - this.overlap;
         const strideX = tileWidth - this.overlap;
@@ -69,13 +84,23 @@ export class GPUTensorTiler {
         const processedTiles: tf.Tensor4D[] = [];
         this.startTimer('allbatches');
 
+        // If we are set as SRGB that means the input is in SRGB and we need to convert it to linear
+        const input = this.srgb ? this.sRGBToLinear(rawInput) : rawInput;
+
         for (let batch = 0; batch < batches; batch++) {
+            // If aborting, return the original input (keeps ts happy)
+            if (this.aborting) {
+                if (statusCallback) statusCallback(0);
+                return rawInput.clone();
+            }
+
             this.startTimer(`processLargeTensorBatch${batch + 1}`);
             const batchTiles = tf.tidy(() => {
                 const start = batch * this.batchSize;
                 const end = Math.min(start + this.batchSize, totalTiles);
 
                 return Array.from({ length: end - start }, (_, i) => {
+
                     const index = start + i;
                     const y = Math.floor(index / tilesX);
                     const x = index % tilesX;
@@ -84,12 +109,18 @@ export class GPUTensorTiler {
                     const [startX, curWidth] = this.getTileDims(x, width, tileWidth, strideX);
 
                     const tile = input.slice([0, startY, startX, 0], [1, curHeight, curWidth, channels]);
-                    return tile.pad([
+                    const paddedTile = tile.pad([
                         [0, 0],
                         [0, tileHeight - curHeight],
                         [0, tileWidth - curWidth],
                         [0, 0]
                     ]) as tf.Tensor4D;
+
+                    return paddedTile;
+
+                    // Add colored border for diagnostic purposes
+                    //return this.addColoredBorder(paddedTile, 2, [1, 0, 0]); // 2-pixel wide red border
+
                 });
             });
 
@@ -127,9 +158,10 @@ export class GPUTensorTiler {
         this.stopTimer('allbatches');
         this.stopTimer('processLargeTensor');
 
-        const result = this.reassembleTilesWithBlending(processedTiles, [batchSize, height, width, 3]);
-        processedTiles.forEach(tile => tf.dispose(tile));
+        let result = this.reassembleTilesWithBlending(processedTiles, [batchSize, height, width, 3]);
+        if (this.srgb) result = this.linearToSRGB(result);
 
+        processedTiles.forEach(tile => tf.dispose(tile));
         this.logMemoryUsage('End of processLargeTensor');
         this.logResults();
 
@@ -153,15 +185,18 @@ export class GPUTensorTiler {
         for (let y = 0; y < tilesY; y++) {
             for (let x = 0; x < tilesX; x++) {
                 this.startTimer(`reassembleTile${tileIndex + 1}`);
+                // Use the cached position-aware blending mask
+                const [startY, curHeight] = this.getTileDims(y, height, tileHeight, strideY);
+                const [startX, curWidth] = this.getTileDims(x, width, tileWidth, strideX);
+
+                const tileMask = this.getBlendingMask(curHeight, curWidth, y, x, tilesY, tilesX).expandDims(0).expandDims(-1);
+
+
                 const [paddedWeightedTile, paddedTileWeights] = tf.tidy(() => {
-                    const [startY, curHeight] = this.getTileDims(y, height, tileHeight, strideY);
-                    const [startX, curWidth] = this.getTileDims(x, width, tileWidth, strideX);
 
                     const tile = tiles[tileIndex];
                     const slicedTile = tile.slice([0, 0, 0, 0], [1, curHeight, curWidth, channels]);
 
-                    // Use an improved blending mask
-                    const tileMask = this.createImprovedBlendingMask(curHeight, curWidth).expandDims(0).expandDims(-1);
 
                     this.logMemoryUsage(`After slicing & masking tile ${tileIndex + 1}/${tiles.length}`);
                     const weightedTile = slicedTile.mul(tileMask);
@@ -210,18 +245,42 @@ export class GPUTensorTiler {
         return result as tf.Tensor4D;
     }
 
-    private createImprovedBlendingMask(height: number, width: number): tf.Tensor2D {
+    private getBlendingMask(height: number, width: number, tileY: number, tileX: number, tilesY: number, tilesX: number): tf.Tensor2D {
+        const key = `${height},${width},${tileY},${tileX},${tilesY},${tilesX}`;
+
+        if (!this.blendingMasks.has(key)) {
+            const mask = this.createImprovedBlendingMask(height, width, tileY, tileX, tilesY, tilesX);
+            this.blendingMasks.set(key, mask);
+        }
+
+        return this.blendingMasks.get(key)!;
+    }
+
+    // Blending mask is not position aware
+    private createImprovedBlendingMask(height: number, width: number, tileY: number, tileX: number, tilesY: number, tilesX: number): tf.Tensor2D {
         return tf.tidy(() => {
             const mask = tf.buffer([height, width]);
 
             for (let i = 0; i < height; i++) {
                 for (let j = 0; j < width; j++) {
-                    const yWeight = Math.min(i, height - 1 - i) / this.overlap;
-                    const xWeight = Math.min(j, width - 1 - j) / this.overlap;
-                    // Use a smoother transition function (quintic smoothstep)
+                    let yWeight = 1;
+                    let xWeight = 1;
+
+                    if (tileY > 0) {
+                        yWeight = Math.min(yWeight, this.sigmoidBlend(i / this.overlap));
+                    }
+                    if (tileY < tilesY - 1) {
+                        yWeight = Math.min(yWeight, this.sigmoidBlend((height - 1 - i) / this.overlap));
+                    }
+                    if (tileX > 0) {
+                        xWeight = Math.min(xWeight, this.sigmoidBlend(j / this.overlap));
+                    }
+                    if (tileX < tilesX - 1) {
+                        xWeight = Math.min(xWeight, this.sigmoidBlend((width - 1 - j) / this.overlap));
+                    }
+
                     const smoothWeight = Math.min(yWeight, xWeight);
-                    const w = smoothWeight * smoothWeight * smoothWeight * (smoothWeight * (smoothWeight * 6 - 15) + 10);
-                    mask.set(w, i, j);
+                    mask.set(smoothWeight, i, j);
                 }
             }
 
@@ -229,26 +288,169 @@ export class GPUTensorTiler {
         }) as tf.Tensor2D;
     }
 
+    private sigmoidBlend(x: number): number {
+        return 1 / (1 + Math.exp(-12 * (x - 0.5)));
+    }
+
     startTimer(name: string) {
-        if (!this.debugMode) return;
+        if (!this.debugging) return;
         this.timers[`${name}In`] = performance.now();
     }
     stopTimer(name: string) {
-        if (!this.debugMode) return;
+        if (!this.debugging) return;
         this.timers[`${name}Out`] = performance.now();
         this.stats[name] = this.timers[`${name}Out`] - this.timers[`${name}In`];
     }
+
     logResults() {
-        if (!this.debugMode) return;
+        if (!this.debugging) return;
         console.log('Tiler Results :');
         console.table(this.stats);
     }
+
     dispose() {
-        if (this.blendingMask) {
-            this.blendingMask.dispose();
-            this.blendingMask = null;
+        for (const mask of this.blendingMasks.values()) {
+            mask.dispose();
         }
+        this.blendingMasks.clear();
     }
+
+    abort() {
+        if (this.debugging) console.log('%cTiler aborted', 'color: white; background-color: red');
+        this.aborting = true;
+
+    }
+
+    //* Colorspace handing ----------------------
+    // TODO move to central location
+    sRGBToLinear(inputTensor: tf.Tensor): tf.Tensor4D {
+
+        const toReturn = tf.tidy(() => {
+            return tf.where(tf.greater(inputTensor, 0.04045),
+                tf.pow(tf.div(tf.add(inputTensor, 0.055), 1.055), 2.4),
+                tf.div(inputTensor, 12.92)
+            );
+        }) as tf.Tensor4D;
+        inputTensor.dispose();
+        return toReturn;
+    }
+    // TODO move to central location
+    linearToSRGB(inputTensor: tf.Tensor): tf.Tensor4D {
+        const toReturn = tf.tidy(() => {
+            return tf.where(tf.greater(inputTensor, 0.0031308),
+                tf.sub(tf.mul(tf.pow(inputTensor, 1 / 2.4), 1.055), 0.055),
+                tf.mul(inputTensor, 12.92)
+            );
+        }) as tf.Tensor4D;
+        inputTensor.dispose();
+        return toReturn;
+    }
+
+    //* Debug Utils ==============================
+    addColoredBorder(tile: tf.Tensor4D, borderWidth: number, color: [number, number, number]): tf.Tensor4D {
+        return tf.tidy(() => {
+            const [_, height, width, channels] = tile.shape;
+            const border = tf.ones([1, height, width, channels]);
+            const coloredBorder = border.mul(tf.tensor(color));
+
+            const withBorder = tf.where(
+                tf.logicalOr(
+                    tf.logicalOr(
+                        tf.less(tf.range(0, height).reshape([1, height, 1, 1]), borderWidth),
+                        tf.greater(tf.range(0, height).reshape([1, height, 1, 1]), height - borderWidth - 1)
+                    ),
+                    tf.logicalOr(
+                        tf.less(tf.range(0, width).reshape([1, 1, width, 1]), borderWidth),
+                        tf.greater(tf.range(0, width).reshape([1, 1, width, 1]), width - borderWidth - 1)
+                    )
+                ),
+                coloredBorder,
+                tile
+            );
+
+            return withBorder;
+        }) as tf.Tensor4D;
+    }
+
+    async visualizeBlendRegions(output: tf.Tensor4D): Promise<tf.Tensor4D> {
+        return tf.tidy(() => {
+            const [_, height, width] = output.shape;
+            const blendMask = tf.buffer([height, width, 1]);
+
+            const tilesY = Math.ceil(height / (this.tileSize[0] - this.overlap));
+            const tilesX = Math.ceil(width / (this.tileSize[1] - this.overlap));
+
+            for (let y = 0; y < tilesY; y++) {
+                for (let x = 0; x < tilesX; x++) {
+                    const [startY, curHeight] = this.getTileDims(y, height, this.tileSize[0], this.tileSize[0] - this.overlap);
+                    const [startX, curWidth] = this.getTileDims(x, width, this.tileSize[1], this.tileSize[1] - this.overlap);
+
+                    const mask = this.getBlendingMask(curHeight, curWidth, y, x, tilesY, tilesX);
+                    const maskData = mask.arraySync();
+
+                    for (let i = 0; i < curHeight; i++) {
+                        for (let j = 0; j < curWidth; j++) {
+                            if (maskData[i][j] < 1) {
+                                blendMask.set(1, startY + i, startX + j, 0);
+                            }
+                        }
+                    }
+                }
+            }
+
+            const blendRegions = blendMask.toTensor().expandDims(0).tile([1, 1, 1, 3]);
+            return output.mul(tf.scalar(0.7)).add(blendRegions.mul(tf.tensor4d([0.3, 0, 0], [1, 1, 1, 3])));
+        }) as tf.Tensor4D;
+    }
+
+    // creates Data URLS of tiles so we can compare them
+    /*
+    // In the processLargeTensor method, add these lines:
+// Before processing:
+await this.visualizeTiles(batchTiles, 'before');
+
+// After processing:
+await this.visualizeTiles(processedTiles, 'after');
+*/
+
+    async visualizeTiles(tiles: tf.Tensor4D[], stage: 'before' | 'after'): Promise<void> {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const tileSize = this.tileSize[0];
+        const tilesPerRow = Math.ceil(Math.sqrt(tiles.length));
+        canvas.width = tileSize * tilesPerRow;
+        canvas.height = tileSize * Math.ceil(tiles.length / tilesPerRow);
+
+        for (let i = 0; i < tiles.length; i++) {
+            const x = (i % tilesPerRow) * tileSize;
+            const y = Math.floor(i / tilesPerRow) * tileSize;
+
+            const tileData = await tiles[i].squeeze().mul(255).toInt().array() as Array<unknown>;
+            const imageData = new ImageData(tileSize, tileSize);
+
+            for (let j = 0; j < tileData.length; j++) {
+                //@ts-ignore
+                for (let k = 0; k < tileData[j].length; k++) {
+                    const idx = (j * tileSize + k) * 4;
+                    //@ts-ignore
+                    imageData.data[idx] = tileData[j][k][0];
+                    //@ts-ignore
+                    imageData.data[idx + 1] = tileData[j][k][1];
+                    //@ts-ignore
+                    imageData.data[idx + 2] = tileData[j][k][2];
+                    imageData.data[idx + 3] = 255;
+                }
+            }
+
+            ctx.putImageData(imageData, x, y);
+        }
+
+        console.log(`Tiles ${stage} processing:`);
+        console.log(canvas.toDataURL());
+    }
+
 
     static generateSampleInput(height: number, width: number): tf.Tensor4D {
         return tf.tidy(() => {
@@ -265,3 +467,4 @@ export class GPUTensorTiler {
         });
     }
 }
+

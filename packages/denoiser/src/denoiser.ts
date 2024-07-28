@@ -14,6 +14,7 @@ import type { TensorMap, DenoiserProps, ImgInput, InputOptions, ListenerCalback,
 export class Denoiser {
     // counter to how many times the model was built
     timesGenerated = 0;
+    // these probably can be deleted
     //backend?: tf.MathBackendWebGL | WebGPUBackend | tf.MathBackendCPU;
     backend?: tf.KernelBackend
     backendLoaded = false;
@@ -55,6 +56,8 @@ export class Denoiser {
     private listeners: Map<ListenerCalback, string> = new Map();
     private backendListeners: Set<ListenerCalback> = new Set();
     private progressListeners: Set<(progress: number) => void> = new Set();
+
+    private aborted = false;
     // Model Props ---
     private unet!: UNet;
     private tiler?: GPUTensorTiler;
@@ -104,6 +107,7 @@ export class Denoiser {
         this.isDirty = true;
         this.props.height = height;
     }
+
     get width() {
         return this.props.width;
     }
@@ -111,6 +115,7 @@ export class Denoiser {
         this.isDirty = true;
         this.props.width = width;
     }
+
     get quality() {
         return this.props.quality;
     }
@@ -118,12 +123,22 @@ export class Denoiser {
         this.isDirty = true;
         this.props.quality = quality;
     }
+
     get hdr() {
         return this.props.hdr;
     }
     set hdr(hdr: boolean) {
         this.isDirty = true;
         this.props.hdr = hdr;
+    }
+
+    get srgb() {
+        return this.props.srgb;
+    }
+    set srgb(srgb: boolean) {
+        this.isDirty = true;
+        this.props.srgb = srgb;
+        if (this.tiler) this.tiler.srgb = srgb;
     }
     get dirtyAux() {
         return this.props.dirtyAux;
@@ -200,7 +215,7 @@ export class Denoiser {
         if (!model) throw new Error('UNet Model failed to build');
 
         //* Tiling
-        if (this.useTiling) this.tiler = new GPUTensorTiler(model, this.tileSize || 256);
+        if (this.useTiling) this.tiler = new GPUTensorTiler(model, { tileSize: this.tileSize, srgb: this.props.srgb });
 
         this.stopTimer('build');
         this.timesGenerated++;
@@ -244,6 +259,8 @@ export class Denoiser {
     // actually execute the model with the set inputs of this class
     private async executeModel() {
         if (this.debugging) console.log('%c Denoiser: Denoising...', 'background: blue; color: white;');
+        // reset an aborted flag
+        this.aborted = false;
         this.startTimer('execution');
         // process and send the input to the model
         const inputTensor = await handleModelInput(this);
@@ -257,6 +274,7 @@ export class Denoiser {
         const result = this.useTiling ? await this.tiler!.processLargeTensor(inputTensor, (progress) => this.handleProgress(progress))
             : await this.unet.execute(inputTensor);
         this.stopTimer('tiling');
+        if (this.aborted) return;
 
         // process the output
         const output = await handleModelOutput(this, result);
@@ -397,6 +415,13 @@ export class Denoiser {
         this.props.useAlbedo = false;
         this.props.useNormal = false;
         this.isDirty = true;
+    }
+    // cancel current execution
+    abort() {
+        this.aborted = true;
+        if (this.debugging) console.log('%c Denoiser: ABORTING', 'background: red; color: white');
+
+        if (this.tiler) this.tiler.abort();
     }
 
     dispose() {
