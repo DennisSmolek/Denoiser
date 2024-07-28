@@ -3,12 +3,14 @@
     "description": "OIDN Denoiser with tensorflow.js",
     "keywords": [
         "OIDN",
-        "Denoise",
+        "denoise",
         "tensorflow.js",
         "denoiser",
-        "unet"
+        "unet",
+        "webgpu",
+        "webgl"
     ],
-    "version": "0.0.8",
+    "version": "0.0.9",
     "author": "Dennis Smolek",
     "contributors": [
         "Dennis Smolek"
