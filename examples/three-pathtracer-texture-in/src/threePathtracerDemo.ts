@@ -564,6 +564,7 @@ export class Renderer {
         this.denoiser.outputMode = 'webgl';
         this.denoiser.inputMode = 'webgl';
         this.denoiser.debugging = true;
+        //this.denoiser.debuggTF = true;
         //this.denoiser.hdr = true;
         //this.denoiser.usePassThrough = true;
         this.denoiser.height = this.renderer.domElement.height;

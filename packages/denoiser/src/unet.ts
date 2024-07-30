@@ -155,7 +155,7 @@ export class UNet {
             filters: weights.shape[3]!,
             kernelSize: 3,
             padding: 'same',
-            activation: 'relu',
+            activation: 'relu6',
             trainable: false,
             weights: [weights, biases]
         });
