@@ -567,6 +567,7 @@ export class Renderer {
         //this.denoiser.debuggTF = true;
         //this.denoiser.hdr = true;
         //this.denoiser.usePassThrough = true;
+        //this.denoiser.batchSize = 8;
         this.denoiser.height = this.renderer.domElement.height;
         this.denoiser.width = this.renderer.domElement.width;
         //this.denoiser.flipOutputY = true;

@@ -28,6 +28,7 @@ export class Denoiser {
         srgb: false,
         height: 0,
         width: 0,
+        batchSize: 4,
         cleanAux: false,
         dirtyAux: false,
         directionals: false,
@@ -142,6 +143,16 @@ export class Denoiser {
         this.props.srgb = srgb;
         if (this.tiler) this.tiler.srgb = srgb;
     }
+
+    get batchSize() {
+        return this.props.batchSize;
+    }
+
+    set batchSize(batchSize: number) {
+        this.isDirty = true;
+        this.props.batchSize = batchSize;
+    }
+
     get dirtyAux() {
         return this.props.dirtyAux;
     }
@@ -231,7 +242,7 @@ export class Denoiser {
         }
 
         //* Tiling
-        if (this.useTiling) this.tiler = new GPUTensorTiler(model, { tileSize: this.tileSize, srgb: this.props.srgb });
+        if (this.useTiling) this.tiler = new GPUTensorTiler(model, { tileSize: this.tileSize, srgb: this.props.srgb, batchSize: this.props.batchSize });
 
 
         this.timesGenerated++;
