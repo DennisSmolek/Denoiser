@@ -5,7 +5,7 @@ import { UNet } from './unet';
 import { formatTime, getCorrectImageData, hasSizeMissmatch } from './utils';
 import { GPUTensorTiler } from './tiler';
 import { WebGLStateManager } from './webglStateManager';
-import { setupBackend, determineTensorMap, handleModelInput, handleModelOutput, handleCallback, adjustSize, handleInputTensors } from './denoiserUtils';
+import { setupBackend, determineTensorMap, handleModelInput, handleModelOutput, handleCallback, adjustSize, handleInputTensors, warmstart, profileModel } from './denoiserUtils';
 //import { logMemoryUsage } from './utils';
 // TODO: These shouldnt have to be imported
 import type { TensorMap, DenoiserProps, ImgInput, InputOptions, ListenerCalback, ModelInput } from 'types/types';
@@ -69,6 +69,7 @@ export class Denoiser {
     public webglStateManager?: WebGLStateManager;
     private _gl?: WebGL2RenderingContext;
     device?: GPUDevice;
+    warmstart = true;
 
     // holder for weights instance where we get tensorMaps
     private weights: Weights;
@@ -79,6 +80,7 @@ export class Denoiser {
     canvas?: HTMLCanvasElement;
     outputToCanvas = false;
     debugging = false;
+    profiling = false;
     usePassThrough = false;
 
     stats: { [key: string]: number | string } = {};
@@ -164,6 +166,7 @@ export class Denoiser {
         if (!gl) return;
         this._gl = gl;
         this.webglStateManager = new WebGLStateManager(gl);
+        this.webglStateManager.captureCurrentState();
     }
 
     get useTiling() {
@@ -172,6 +175,11 @@ export class Denoiser {
     set useTiling(useTiling: boolean) {
         this._tilingUserBlocked = !useTiling;
         this._useTiling = useTiling;
+    }
+
+    set debuggTF(debug: boolean) {
+        if (debug) tf.enableDebugMode();
+        else tf.enableProdMode();
     }
 
     // Weights --
@@ -213,11 +221,19 @@ export class Denoiser {
 
         const model = (this.usePassThrough) ? await this.unet.debugBuild() : await this.unet.build();
         if (!model) throw new Error('UNet Model failed to build');
+        this.stopTimer('build');
+
+        // Warmstart the model
+        if (this.warmstart) {
+            this.startTimer('warmstart');
+            warmstart(model, height, width, channels);
+            this.stopTimer('warmstart');
+        }
 
         //* Tiling
         if (this.useTiling) this.tiler = new GPUTensorTiler(model, { tileSize: this.tileSize, srgb: this.props.srgb });
 
-        this.stopTimer('build');
+
         this.timesGenerated++;
         this.isDirty = false;
     }
@@ -264,17 +280,24 @@ export class Denoiser {
         this.startTimer('execution');
         // process and send the input to the model
         const inputTensor = await handleModelInput(this);
-        //const inputTensor = GPUTensorTiler.generateSampleInput(this.props.height, this.props.width, 4);
 
         // if we need to rebuild the model
         if (this.isDirty) await this.build();
+
+        // If profiling
+        if (this.profiling) {
+            const testTensor = GPUTensorTiler.generateSampleInput(this.tileSize, this.tileSize);
+            await profileModel(this.unet.model, testTensor);
+        }
 
         // Execute model with tiling or standard
         this.startTimer('tiling');
         const result = this.useTiling ? await this.tiler!.processLargeTensor(inputTensor, (progress) => this.handleProgress(progress))
             : await this.unet.execute(inputTensor);
         this.stopTimer('tiling');
-        if (this.aborted) return;
+
+        // if we abort
+        if (this.aborted) return this.handleAbort();
 
         // process the output
         const output = await handleModelOutput(this, result);
@@ -300,6 +323,11 @@ export class Denoiser {
         this.stopTimer('execution');
         this.logStats();
         return toReturn;
+    }
+
+    private async handleAbort() {
+        if (this.gl) this.webglStateManager?.saveState();
+        this.stopTimer('execution');
     }
 
     //* Set the Inputs -----------------------------------

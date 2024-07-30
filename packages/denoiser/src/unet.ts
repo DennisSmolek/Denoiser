@@ -21,7 +21,7 @@ export class UNet {
 
     //* internal
     private _inputTensor!: Tensor4D;
-    private model!: tf.LayersModel;
+    model!: tf.LayersModel;
     weights: TensorMap;
 
     constructor({ weights, size, height, width, channels }: UnetProps) {

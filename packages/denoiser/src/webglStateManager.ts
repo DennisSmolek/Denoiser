@@ -1,14 +1,15 @@
 export class WebGLStateManager {
     private gl: WebGLRenderingContext;
-    private savedState: any = null;
+    private tfState: any = null;
+    private capturedState: any = null;
 
     constructor(gl: WebGLRenderingContext) {
         this.gl = gl;
     }
 
-    saveState() {
+    private captureState(): any {
         const gl = this.gl;
-        this.savedState = {
+        return {
             program: gl.getParameter(gl.CURRENT_PROGRAM),
             activeTexture: gl.getParameter(gl.ACTIVE_TEXTURE),
             arrayBuffer: gl.getParameter(gl.ARRAY_BUFFER_BINDING),
@@ -43,11 +44,26 @@ export class WebGLStateManager {
         };
     }
 
-    restoreState() {
-        if (!this.savedState) return;
+    captureCurrentState() {
+        this.capturedState = this.captureState();
+    }
 
+    saveState(ignoreRestore = false) {
+        this.tfState = this.captureState();
+        if (!ignoreRestore && this.capturedState) {
+            this.applyState(this.capturedState);
+        }
+    }
+
+    restoreState() {
+        if (!this.tfState) return;
+
+        this.capturedState = this.captureState();
+        this.applyState(this.tfState);
+    }
+
+    private applyState(state: any) {
         const gl = this.gl;
-        const state = this.savedState;
 
         gl.useProgram(state.program);
         gl.activeTexture(state.activeTexture);
@@ -56,8 +72,7 @@ export class WebGLStateManager {
         gl.bindFramebuffer(gl.FRAMEBUFFER, state.framebuffer);
         gl.bindRenderbuffer(gl.RENDERBUFFER, state.renderbuffer);
         gl.bindTexture(gl.TEXTURE_2D, state.texture);
-        // @ts-ignore
-        gl.viewport(...state.viewport);
+        gl.viewport(state.viewport[0], state.viewport[1], state.viewport[2], state.viewport[3]);
         gl.scissor(state.scissor[0], state.scissor[1], state.scissor[2], state.scissor[3]);
 
         state.blend ? gl.enable(gl.BLEND) : gl.disable(gl.BLEND);
@@ -66,12 +81,9 @@ export class WebGLStateManager {
         state.scissorTest ? gl.enable(gl.SCISSOR_TEST) : gl.disable(gl.SCISSOR_TEST);
 
         gl.blendFuncSeparate(state.blendFunc[0], state.blendFunc[1], state.blendFunc[2], state.blendFunc[3]);
-        // @ts-ignore
-        gl.blendEquationSeparate(...state.blendEquation);
-        // @ts-ignore
-        gl.colorMask(...state.colorMask);
-        // @ts-ignore
-        gl.clearColor(...state.clearColor);
+        gl.blendEquationSeparate(state.blendEquation[0], state.blendEquation[1]);
+        gl.colorMask(state.colorMask[0], state.colorMask[1], state.colorMask[2], state.colorMask[3]);
+        gl.clearColor(state.clearColor[0], state.clearColor[1], state.clearColor[2], state.clearColor[3]);
 
         gl.pixelStorei(gl.UNPACK_ALIGNMENT, state.pixelStoreParams.unpackAlignment);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, state.pixelStoreParams.unpackFlipY);

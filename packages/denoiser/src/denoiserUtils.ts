@@ -3,7 +3,7 @@ import * as tf from '@tensorflow/tfjs';
 import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu';
 import type { Denoiser } from './denoiser';
 import type { DenoiserProps, InputOptions } from 'types/types';
-import { concatenateAlpha3D, splitRGBA3D } from './utils';
+import { concatenateAlpha3D, formatBytes, splitRGBA3D } from './utils';
 
 export async function setupBackend(denoiser: Denoiser, prefered = 'webgl', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
     // do the easy part first
@@ -16,7 +16,7 @@ export async function setupBackend(denoiser: Denoiser, prefered = 'webgl', canva
         //@ts-ignore
         denoiser.gl = backendName === 'webgl' ? denoiser.backend.gpgpu.gl : undefined;
         if (denoiser.debugging) console.log(`Denoiser: Backend set to ${prefered}`);
-
+        await tf.ready();
         denoiser.backendReady = true;
         return denoiser.backend;
     }
@@ -47,6 +47,9 @@ export async function setupBackend(denoiser: Denoiser, prefered = 'webgl', canva
     }
 
     //* Setup a webGL backend with a custom context
+    // to get here the canvas has to be passed and the rendering context is actually already on the canvas
+    denoiser.gl = (canvasOrDevice as HTMLCanvasElement).getContext('webgl2')!;
+
     // if multiple denoisers exist they can share contexts
     // register the backend if it doesn't exist
     if (tf.findBackend('denoiser-webgl') === null) {
@@ -62,10 +65,12 @@ export async function setupBackend(denoiser: Denoiser, prefered = 'webgl', canva
     await tf.setBackend('denoiser-webgl');
     await tf.ready();
 
-    //@ts-ignore
-    denoiser.gl = tf.engine().findBackend('denoiser-webgl').gpgpu.gl;
     // see what happens if we force textures to be f16
     tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
+    //tf.env().set('WEBGL_RENDER_FLOAT32_ENABLED', true);
+    // attempting speed increases
+    tf.env().set('WEBGL_EXP_CONV', true);
+    tf.env().set('WEBGL_USE_SHAPES_UNIFORMS', true);
     console.log('%c Denoiser: Backend set to custom webgl', 'background: orange; color: white;');
     denoiser.usingCustomBackend = true;
     denoiser.backendReady = true;
@@ -112,6 +117,20 @@ export function adjustSize(denoiser: Denoiser, options: InputOptions) {
         if (denoiser.debugging) console.log('Denoiser: Adjusted size to', denoiser.width, denoiser.height);
     }
 }
+
+// warmstart the model if using webGL
+export function warmstart(model: tf.LayersModel, height: number, width: number, channels: number) {
+    const backendName = tf.getBackend();
+    // Warmstart for webGL only
+    if (backendName !== 'webgl' && backendName !== 'denoiser-webgl') return;
+    console.log('Warming up the model for WebGL');
+    tf.env().set('ENGINE_COMPILE_ONLY', true);
+    (model.predict(tf.randomNormal([1, height, width, channels])) as tf.Tensor4D).dataSync();
+    (tf.backend() as tf.MathBackendWebGL).checkCompileCompletion();
+    (tf.backend() as tf.MathBackendWebGL).getUniformLocations();
+    tf.env().set('ENGINE_COMPILE_ONLY', false);
+}
+
 // prepare and process input tensors
 export async function handleInputTensors(denoiser: Denoiser, name: 'color' | 'albedo' | 'normal', inputTensor: tf.Tensor3D, options: InputOptions) {
     if (name === 'color') denoiser.props.useColor = true;
@@ -236,4 +255,34 @@ export async function handleCallback(denoiser: Denoiser, outputTensor: tf.Tensor
     }
     if (callback) callback(toReturn!);
     return toReturn!;
+}
+
+
+export async function profileModel(model: tf.LayersModel, inputTensor: tf.Tensor4D) {
+    // Warm-up run
+    const warmupResult = await model.predict(inputTensor);
+    tf.dispose(warmupResult);
+
+    // Actual profiling
+    const profileInfo = await tf.profile(() => {
+        return model.predict(inputTensor);
+    });
+
+    console.log('Profile information:', profileInfo);
+
+    // Log specific metrics
+    // console.log('Total time (ms):', profileInfo.totalTimeMs);
+    //console.log('Kernel execution time (ms):', profileInfo.kernelMs);
+
+    // Log individual kernel executions
+    profileInfo.kernels.forEach((kernel, index) => {
+        console.log(`Kernel ${index}:`, kernel.name, kernel.kernelTimeMs, 'ms', 'Bytes Added:', formatBytes(kernel.bytesAdded));
+    });
+
+    // Memory usage
+    const memoryInfo = tf.memory();
+    console.log('Memory usage:', memoryInfo);
+
+    // Don't forget to dispose of tensors
+    tf.dispose(inputTensor);
 }
