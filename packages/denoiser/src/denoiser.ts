@@ -6,10 +6,8 @@ import { formatTime, getCorrectImageData, hasSizeMissmatch } from './utils';
 import { GPUTensorTiler } from './tiler';
 import { WebGLStateManager } from './webglStateManager';
 import { setupBackend, determineTensorMap, handleModelInput, handleModelOutput, handleCallback, adjustSize, handleInputTensors, warmstart, profileModel } from './denoiserUtils';
-//import { logMemoryUsage } from './utils';
 // TODO: These shouldnt have to be imported
 import type { TensorMap, DenoiserProps, ImgInput, InputOptions, ListenerCalback, ModelInput } from 'types/types';
-
 
 export class Denoiser {
     // counter to how many times the model was built
@@ -49,7 +47,6 @@ export class Denoiser {
     //* Tiling ---
     _useTiling = false;
     _tilingUserBlocked = false
-    tileStride = 16;
     tileSize = 256;
 
     //* Internal -----------------------------------
@@ -59,6 +56,7 @@ export class Denoiser {
     private progressListeners: Set<(progress: number) => void> = new Set();
 
     private aborted = false;
+
     // Model Props ---
     private unet!: UNet;
     private tiler?: GPUTensorTiler;
@@ -85,15 +83,7 @@ export class Denoiser {
     usePassThrough = false;
 
     stats: { [key: string]: number | string } = {};
-    timers: { [key: string]: number } = {
-        buildStart: 0,
-        buildEnd: 0,
-        executionStart: 0,
-        executionEnd: 0,
-        tilingStart: 0,
-        tilingEnd: 0
-
-    };
+    timers: { [key: string]: number } = {};
 
     constructor(preferedBackend = 'webgl', canvasOrDevice?: HTMLCanvasElement | GPUDevice) {
         this.weights = Weights.getInstance();
@@ -103,70 +93,49 @@ export class Denoiser {
     }
 
     //* Getters and Setters ------------------------------
-    get height() {
-        return this.props.height;
-    }
-    set height(height: number) {
-        this.setProp('height', height);
-    }
+    // Weights --
+    set weightsPath(path: string) { this.weights.path = path; }
+    get weightsPath() { return this.weights.path!; }
 
-    get width() {
-        return this.props.width;
-    }
-    set width(width: number) {
-        this.setProp('width', width);
-    }
+    set weightsUrl(url: string) { this.weights.url = url; }
+    get weightsUrl() { return this.weights.url!; }
 
-    get quality() {
-        return this.props.quality;
-    }
-    set quality(quality: 'fast' | 'high' | 'balanced') {
-        this.setProp('quality', quality);
-    }
+    // Props ---
+    get height() { return this.props.height; }
+    set height(height: number) { this.setProp('height', height); }
 
-    get hdr() {
-        return this.props.hdr;
-    }
-    set hdr(hdr: boolean) {
-        this.setProp('hdr', hdr);
-    }
+    get width() { return this.props.width; }
+    set width(width: number) { this.setProp('width', width); }
 
-    get srgb() {
-        return this.props.srgb;
-    }
+    get quality() { return this.props.quality; }
+    set quality(quality: 'fast' | 'high' | 'balanced') { this.setProp('quality', quality); }
+
+    get hdr() { return this.props.hdr; }
+    set hdr(hdr: boolean) { this.setProp('hdr', hdr); }
+
+    get batchSize() { return this.props.batchSize; }
+    set batchSize(batchSize: number) { this.setProp('batchSize', batchSize); }
+
+    get srgb() { return this.props.srgb; }
     set srgb(srgb: boolean) {
         this.setProp('srgb', srgb);
         if (this.tiler) this.tiler.srgb = srgb;
     }
 
-    get batchSize() {
-        return this.props.batchSize;
-    }
-
-    set batchSize(batchSize: number) {
-        this.setProp('batchSize', batchSize);
-    }
-
-    get dirtyAux() {
-        return this.props.dirtyAux;
-    }
+    get dirtyAux() { return this.props.dirtyAux; }
     set dirtyAux(dirtyAux: boolean) {
         this.isDirty = true;
         if (dirtyAux && this.props.cleanAux) this.props.cleanAux = false;
         this.props.dirtyAux = dirtyAux;
     }
     // Backend---
-    get backendReady() {
-        return this.backendLoaded;
-    }
+    get backendReady() { return this.backendLoaded; }
     set backendReady(isReady: boolean) {
         this.backendLoaded = isReady;
         if (isReady) this.backendListeners.forEach((callback) => callback(this.backend));
     }
 
-    get gl(): WebGL2RenderingContext | undefined {
-        return this._gl;
-    }
+    get gl(): WebGL2RenderingContext | undefined { return this._gl; }
     set gl(gl: WebGL2RenderingContext) {
         if (!gl) return;
         this._gl = gl;
@@ -174,9 +143,7 @@ export class Denoiser {
         this.webglStateManager.captureCurrentState();
     }
 
-    get useTiling() {
-        return this._useTiling;
-    }
+    get useTiling() { return this._useTiling; }
     set useTiling(useTiling: boolean) {
         this._tilingUserBlocked = !useTiling;
         this._useTiling = useTiling;
@@ -185,20 +152,6 @@ export class Denoiser {
     set debuggTF(debug: boolean) {
         if (debug) tf.enableDebugMode();
         else tf.enableProdMode();
-    }
-
-    // Weights --
-    set weightsPath(path: string) {
-        this.weights.path = path;
-    }
-    get weightsPath() {
-        return this.weights.path!;
-    }
-    set weightsUrl(url: string) {
-        this.weights.url = url;
-    }
-    get weightsUrl() {
-        return this.weights.url!;
     }
 
     setProp(propName: keyof DenoiserProps, value: any) {
@@ -236,15 +189,10 @@ export class Denoiser {
         this.stopTimer('build');
 
         // Warmstart the model
-        if (this.warmstart) {
-            this.startTimer('warmstart');
-            warmstart(model, height, width, channels);
-            this.stopTimer('warmstart');
-        }
+        if (this.warmstart) this.timed('warmstart', () => warmstart(model, height, width, channels));
 
         //* Tiling
         if (this.useTiling) this.tiler = new GPUTensorTiler(model, { tileSize: this.tileSize, srgb: this.props.srgb, batchSize: this.props.batchSize });
-
 
         this.timesGenerated++;
         this.isDirty = false;
@@ -462,16 +410,13 @@ export class Denoiser {
     abort() {
         this.aborted = true;
         if (this.debugging) console.log('%c Denoiser: ABORTING', 'background: red; color: white');
-
         if (this.tiler) this.tiler.abort();
     }
 
     dispose() {
         this.unet.dispose();
         if (this.tiler) this.tiler.dispose();
-        this.inputTensors.forEach((tensor) => tensor.dispose());
-        if (this.inputAlpha) this.inputAlpha.dispose();
-        if (this.directInputTensor) this.directInputTensor.dispose();
+        this.resetInputs();
     }
 
     //* Listeners ---------------------------------------
