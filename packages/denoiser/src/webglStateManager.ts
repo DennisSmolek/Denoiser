@@ -31,8 +31,6 @@ export class WebGLStateManager {
     public ingoreRestore = false;
     public debugging = false;
 
-
-
     constructor(gl: WebGLRenderingContext) {
         this.gl = gl;
     }

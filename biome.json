@@ -7,6 +7,9 @@
             },
             "complexity": {
                 "noForEach": "off"
+            },
+            "suspicious": {
+                "noExplicitAny": "off"
             }
         }
     }

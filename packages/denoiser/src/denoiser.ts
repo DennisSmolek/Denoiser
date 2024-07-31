@@ -107,40 +107,35 @@ export class Denoiser {
         return this.props.height;
     }
     set height(height: number) {
-        this.isDirty = true;
-        this.props.height = height;
+        this.setProp('height', height);
     }
 
     get width() {
         return this.props.width;
     }
     set width(width: number) {
-        this.isDirty = true;
-        this.props.width = width;
+        this.setProp('width', width);
     }
 
     get quality() {
         return this.props.quality;
     }
     set quality(quality: 'fast' | 'high' | 'balanced') {
-        this.isDirty = true;
-        this.props.quality = quality;
+        this.setProp('quality', quality);
     }
 
     get hdr() {
         return this.props.hdr;
     }
     set hdr(hdr: boolean) {
-        this.isDirty = true;
-        this.props.hdr = hdr;
+        this.setProp('hdr', hdr);
     }
 
     get srgb() {
         return this.props.srgb;
     }
     set srgb(srgb: boolean) {
-        this.isDirty = true;
-        this.props.srgb = srgb;
+        this.setProp('srgb', srgb);
         if (this.tiler) this.tiler.srgb = srgb;
     }
 
@@ -149,8 +144,7 @@ export class Denoiser {
     }
 
     set batchSize(batchSize: number) {
-        this.isDirty = true;
-        this.props.batchSize = batchSize;
+        this.setProp('batchSize', batchSize);
     }
 
     get dirtyAux() {
@@ -205,6 +199,13 @@ export class Denoiser {
     }
     get weightsUrl() {
         return this.weights.url!;
+    }
+
+    setProp(propName: keyof DenoiserProps, value: any) {
+        if (this.props[propName] === value) return;
+        this.isDirty = true;
+        //@ts-ignore
+        this.props[propName] = value;
     }
 
     //* Build the unet using props ------------------------
@@ -424,7 +425,7 @@ export class Denoiser {
         await handleInputTensors(this, name, baseTensor, options);
     }
 
-    //* Data Input ---
+    // Data Input ---
     setInputData(name: 'color' | 'albedo' | 'normal', data: Float32Array | Uint8Array, options: InputOptions = {}) {
         if (!data) throw new Error('Denoiser: No data provided');
         // check if data is a float32 and reject otherwise
@@ -440,6 +441,7 @@ export class Denoiser {
         this.canvas = canvas;
         this.outputToCanvas = true;
     }
+
     // clear the input tensors and mark dirty
     resetInputs() {
         console.log('%c Denoiser: RESETTING INPUTS', 'background: red; color: white');
@@ -455,6 +457,7 @@ export class Denoiser {
         this.props.useNormal = false;
         this.isDirty = true;
     }
+
     // cancel current execution
     abort() {
         this.aborted = true;
@@ -483,7 +486,6 @@ export class Denoiser {
         return () => this.progressListeners.delete(listener);
     }
 
-
     // Add a listener to the denoiser with a return function to stop listening
     onExecute(listener: ListenerCalback, responseType = this.outputMode) {
         this.listeners.set(listener, responseType);
@@ -496,16 +498,32 @@ export class Denoiser {
         else this.backendListeners.add(listener);
         return () => this.backendListeners.delete(listener);
     }
+
     //* Debuging ----------------------------------------
     startTimer(name: string) {
         if (!this.debugging) return;
         this.timers[`${name}In`] = performance.now();
     }
+
     stopTimer(name: string) {
         if (!this.debugging) return;
         this.timers[`${name}Out`] = performance.now();
         this.stats[name] = this.timers[`${name}Out`] - this.timers[`${name}In`];
     }
+
+    async timed(name: string, fn: () => any): Promise<any> {
+        if (!this.debugging) return fn();
+
+        this.startTimer(name);
+        let result: any;
+        try {
+            result = await fn();
+        } finally {
+            this.stopTimer(name);
+        }
+        return result;
+    }
+
     logStats() {
         if (!this.debugging) return;
         console.log('%c Denoiser Stats:', 'background: #73BFB8; color: white');
@@ -515,5 +533,7 @@ export class Denoiser {
             return acc;
         }, {} as { [key: string]: string });
         console.table(formattedStats);
+        // reset the stats
+        this.stats = {};
     }
 }
