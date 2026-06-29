@@ -2472,6 +2472,17 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"denoiser-package-test@workspace:examples/denoiser-package-test":
+  version: 0.0.0-use.local
+  resolution: "denoiser-package-test@workspace:examples/denoiser-package-test"
+  dependencies:
+    denoiser: "workspace:*"
+    onnxruntime-web: "npm:^1.27.0"
+    typescript: "npm:^5.5.2"
+    vite: "npm:^5.4.0"
+  languageName: unknown
+  linkType: soft
+
 "denoiser-react@workspace:packages/denoiser-react":
   version: 0.0.0-use.local
   resolution: "denoiser-react@workspace:packages/denoiser-react"
@@ -2509,7 +2520,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"denoiser@workspace:^, denoiser@workspace:packages/denoiser":
+"denoiser@workspace:*, denoiser@workspace:^, denoiser@workspace:packages/denoiser":
   version: 0.0.0-use.local
   resolution: "denoiser@workspace:packages/denoiser"
   dependencies:

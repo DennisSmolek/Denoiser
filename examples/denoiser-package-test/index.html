@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>denoiser package — end-to-end test</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #1a202c; color: #e2e8f0; }
+      .row { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+      canvas { border: 1px solid #4a5568; image-rendering: pixelated; }
+      button { margin: 1rem 0; padding: 0.5rem 1rem; cursor: pointer; }
+      pre { background: #2d3748; padding: 0.75rem; border-radius: 4px; min-height: 4rem; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>import { Denoiser } from 'denoiser' — WebGPU/ONNX</h1>
+    <p>Exercises the real package: model selection, image input, tiling, canvas output.</p>
+    <button id="run" disabled>Re-run with new noise</button>
+    <div class="row">
+      <figure><canvas id="noisy" width="384" height="384"></canvas><figcaption>noisy input</figcaption></figure>
+      <figure><canvas id="clean" width="384" height="384"></canvas><figcaption>denoised (Denoiser → canvas)</figcaption></figure>
+    </div>
+    <pre id="status"></pre>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
