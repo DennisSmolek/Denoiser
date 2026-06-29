@@ -32,3 +32,11 @@ node_modules/
 .DS_Store
 Thumbs.db
 /examples
+
+# ONNX models — large, hosted on CDN (like tzas/), not committed
+packages/denoiser/models/
+
+# Python tooling
+tools/**/.venv/
+__pycache__/
+*.pyc
