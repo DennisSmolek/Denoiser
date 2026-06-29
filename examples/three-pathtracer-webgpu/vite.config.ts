@@ -10,7 +10,23 @@ export default defineConfig({
   // three r185 / pathtracer source use top-level await -> need an esnext target
   esbuild: { target: 'esnext' },
   build: { target: 'esnext' },
-  optimizeDeps: { exclude: ['onnxruntime-web'], esbuildOptions: { target: 'esnext' } },
+  // Exactly one three instance: the pathtracer (served as source) and our
+  // `three/webgpu` import must resolve to the same copy, or material nodes from
+  // one instance are unrecognized by the other (-> "bsdfSample of null").
+  resolve: { dedupe: ['three', 'three-mesh-bvh'] },
+  optimizeDeps: {
+    // Serve three + the pathtracer + mesh-bvh as source (not pre-bundled): keeps a
+    // single three instance and lets the pathtracer's import.meta.url asset resolve.
+    exclude: [
+      'onnxruntime-web',
+      'three',
+      'three/webgpu',
+      'three/tsl',
+      'three-mesh-bvh',
+      'three-gpu-pathtracer',
+    ],
+    esbuildOptions: { target: 'esnext' },
+  },
   plugins: [
     {
       name: 'serve-models',

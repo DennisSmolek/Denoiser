@@ -15,3 +15,7 @@ declare module 'three-gpu-pathtracer/webgpu' {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   export const WebGPUPathTracer: any;
 }
+declare module 'three-gpu-pathtracer/src/textures/GradientEquirectTexture.js' {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const GradientEquirectTexture: any;
+}
