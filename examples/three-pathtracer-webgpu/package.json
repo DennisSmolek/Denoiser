@@ -1,0 +1,24 @@
+{
+  "name": "three-pathtracer-webgpu",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "three r185 WebGPUPathTracer + WebGPU/ONNX denoiser on a shared GPUDevice.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "denoiser": "workspace:*",
+    "three": "^0.185.0",
+    "three-gpu-pathtracer": "github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer",
+    "three-mesh-bvh": "^0.9.9",
+    "xatlas-web": "^0.1.0"
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.27.0",
+    "typescript": "^5.5.2",
+    "vite": "^5.4.0"
+  }
+}

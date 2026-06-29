@@ -5289,6 +5289,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"three-gpu-pathtracer@github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer":
+  version: 0.0.24
+  resolution: "three-gpu-pathtracer@https://github.com/gkjohnson/three-gpu-pathtracer.git#commit=7498576aefece4a0de5e32058f71280514138176"
+  peerDependencies:
+    three: ">=0.180.0"
+    three-mesh-bvh: ">=0.9.9"
+    xatlas-web: ^0.1.0
+  checksum: 10c0/68e67b8c94238f3098df523867d5e2328612b49f81d6baa39c3978df3d618ab1818a6bbd70f0efc56b5a7122f7b47685571314f01ded70203c79ead2b7709d5e
+  languageName: node
+  linkType: hard
+
 "three-gpu-pathtracer@npm:^0.0.23":
   version: 0.0.23
   resolution: "three-gpu-pathtracer@npm:0.0.23"
@@ -5309,10 +5320,41 @@ __metadata:
   languageName: node
   linkType: hard
 
+"three-mesh-bvh@npm:^0.9.9":
+  version: 0.9.10
+  resolution: "three-mesh-bvh@npm:0.9.10"
+  peerDependencies:
+    three: ">= 0.159.0"
+  checksum: 10c0/369424a0f4bf98503a0b089d77b489de6c62e4c03b420697390617e33207c7e063b35be8ee38eaacce8819154f29387a9e653766a96dde2116940f3182e9475a
+  languageName: node
+  linkType: hard
+
+"three-pathtracer-webgpu@workspace:examples/three-pathtracer-webgpu":
+  version: 0.0.0-use.local
+  resolution: "three-pathtracer-webgpu@workspace:examples/three-pathtracer-webgpu"
+  dependencies:
+    denoiser: "workspace:*"
+    onnxruntime-web: "npm:^1.27.0"
+    three: "npm:^0.185.0"
+    three-gpu-pathtracer: "github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer"
+    three-mesh-bvh: "npm:^0.9.9"
+    typescript: "npm:^5.5.2"
+    vite: "npm:^5.4.0"
+    xatlas-web: "npm:^0.1.0"
+  languageName: unknown
+  linkType: soft
+
 "three@npm:^0.166.1":
   version: 0.166.1
   resolution: "three@npm:0.166.1"
   checksum: 10c0/a0ab08ead10d249fed621dcf0d55daec192f3f029ee4c5b8626d35e0eced69d3af078b423e7e8980da6512d565ff7789eead4012a48e0cfafda4cac0906002dc
+  languageName: node
+  linkType: hard
+
+"three@npm:^0.185.0":
+  version: 0.185.0
+  resolution: "three@npm:0.185.0"
+  checksum: 10c0/6f12f82979d2462ff16d9c5307193037918f7d0d86f1b7db6adfbd80395c24a989bc6db4926aea8a2ab416850faf3d3466a160bcb60b73e29b4bb17a26575eed
   languageName: node
   linkType: hard
 
@@ -5737,6 +5779,13 @@ __metadata:
   version: 1.0.2
   resolution: "wrappy@npm:1.0.2"
   checksum: 10c0/56fece1a4018c6a6c8e28fbc88c87e0fbf4ea8fd64fc6c63b18f4acc4bd13e0ad2515189786dd2c30d3eec9663d70f4ecf699330002f8ccb547e4a18231fc9f0
+  languageName: node
+  linkType: hard
+
+"xatlas-web@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "xatlas-web@npm:0.1.0"
+  checksum: 10c0/1c0130ba242ee142c1e77d32eb71a4a7559e1d1bb11385627ac0abf93f291999c2be5592c5429d2d0e9a0873ad5514546dc26679dbf1856eb44f4faf762d5396
   languageName: node
   linkType: hard
 

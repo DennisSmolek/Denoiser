@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebGPU path tracer + denoiser (shared device)</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #1a202c; color: #e2e8f0; }
+      .row { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+      canvas { border: 1px solid #4a5568; width: 512px; height: 512px; }
+      button { margin: 1rem 0; padding: 0.5rem 1rem; cursor: pointer; }
+      pre { background: #2d3748; padding: 0.75rem; border-radius: 4px; min-height: 4rem; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>three r185 WebGPUPathTracer → WebGPU/ONNX denoiser (one GPUDevice)</h1>
+    <button id="denoise" disabled>Denoise current frame</button>
+    <div class="row">
+      <figure><canvas id="view" width="512" height="512"></canvas><figcaption>path traced (accumulating)</figcaption></figure>
+      <figure><canvas id="out" width="512" height="512"></canvas><figcaption>denoised</figcaption></figure>
+    </div>
+    <pre id="status"></pre>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
