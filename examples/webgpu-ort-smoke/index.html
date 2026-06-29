@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebGPU ORT Denoiser — smoke test</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #1a202c; color: #e2e8f0; }
+      h1 { font-size: 1.2rem; }
+      .row { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+      figure { margin: 0; }
+      canvas { border: 1px solid #4a5568; image-rendering: pixelated; width: 256px; height: 256px; }
+      figcaption { font-size: 0.85rem; margin-top: 0.4rem; color: #a0aec0; }
+      button { margin: 1rem 0; padding: 0.5rem 1rem; cursor: pointer; }
+      pre { background: #2d3748; padding: 0.75rem; border-radius: 4px; min-height: 4rem; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>OIDN U-Net on ONNX Runtime Web (WebGPU EP)</h1>
+    <p>Converted <code>rt_ldr_small.onnx</code>, zero-copy GPU-buffer IO. Left: synthetic noisy input. Right: denoised.</p>
+    <button id="run" disabled>Re-run with new noise</button>
+    <button id="bench" disabled>Benchmark ×50 (warm)</button>
+    <div class="row">
+      <figure><canvas id="noisy" width="256" height="256"></canvas><figcaption>noisy input (256² tile)</figcaption></figure>
+      <figure><canvas id="clean" width="256" height="256"></canvas><figcaption>denoised output</figcaption></figure>
+    </div>
+
+    <h2 style="font-size:1rem;">Full-image tiled path (256² tiles, overlap 32)</h2>
+    <button id="runTiled" disabled>Denoise full image</button>
+    <div class="row">
+      <figure><canvas id="noisyBig" width="640" height="384" style="width:640px;height:384px;"></canvas><figcaption>noisy input</figcaption></figure>
+    </div>
+    <div class="row">
+      <figure><canvas id="cleanBig" width="640" height="384" style="width:640px;height:384px;"></canvas><figcaption>denoised (tiled + blended)</figcaption></figure>
+    </div>
+    <h2 style="font-size:1rem;">Aux-input path (color + albedo + normal → 9ch model)</h2>
+    <button id="runAux" disabled>Denoise with aux</button>
+    <div class="row">
+      <figure><canvas id="auxColor" width="256" height="256"></canvas><figcaption>color (noisy)</figcaption></figure>
+      <figure><canvas id="auxAlbedo" width="256" height="256"></canvas><figcaption>albedo</figcaption></figure>
+      <figure><canvas id="auxNormal" width="256" height="256"></canvas><figcaption>normal</figcaption></figure>
+      <figure><canvas id="auxClean" width="256" height="256"></canvas><figcaption>denoised (9ch)</figcaption></figure>
+    </div>
+
+    <pre id="status"></pre>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
