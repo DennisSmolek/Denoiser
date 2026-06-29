@@ -1,91 +1,80 @@
-import * as tf from '@tensorflow/tfjs';
-//* ImageData functions ----------------------------
-// take a css scaled image and use a canvas to get the actual size
-export function getCorrectImageData(img: HTMLImageElement) {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Could not get canvas context');
-    canvas.width = img.naturalWidth || img.width;
-    canvas.height = img.naturalHeight || img.height;
-    ctx.drawImage(img, 0, 0);
-    return ctx.getImageData(0, 0, canvas.width, canvas.height);
-}
-// check if the height/width dont math
-export function hasSizeMissmatch(img: HTMLImageElement) {
-    if (!img.naturalHeight || !img.naturalWidth) return true;
-    return img.height !== img.naturalHeight || img.width !== img.naturalWidth;
+import type { ImgInput } from './types';
+
+//* Image helpers ----------------------------------
+
+/** Decode any supported image input to RGBA8 bytes + dimensions via a 2D canvas. */
+export function imgToRGBA(input: ImgInput): { data: Uint8ClampedArray; width: number; height: number } {
+  if (input instanceof ImageData) {
+    return { data: input.data, width: input.width, height: input.height };
+  }
+  let width = 0;
+  let height = 0;
+  if (input instanceof HTMLImageElement) {
+    width = input.naturalWidth || input.width;
+    height = input.naturalHeight || input.height;
+  } else if (typeof HTMLVideoElement !== 'undefined' && input instanceof HTMLVideoElement) {
+    width = input.videoWidth;
+    height = input.videoHeight;
+  } else {
+    width = (input as { width: number }).width;
+    height = (input as { height: number }).height;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Denoiser: could not get 2D canvas context');
+  ctx.drawImage(input as CanvasImageSource, 0, 0, width, height);
+  const id = ctx.getImageData(0, 0, width, height);
+  return { data: id.data, width, height };
 }
 
-//* Tensor Functions ----------------------------
-// Function to split RGBA tensor into RGB and A tensors for Tensor3D
-export async function splitRGBA3D(inputTensor: tf.Tensor3D, disposeInputs = true): Promise<{ rgb: tf.Tensor3D; alpha: tf.Tensor3D; }> {
-    // Assuming inputTensor shape is [height, width, 4] where the last dimension is RGBA
-    const rgb = tf.slice(inputTensor, [0, 0, 0], [-1, -1, 3]); // Take the first 3 channels (RGB)
-    const alpha = tf.slice(inputTensor, [0, 0, 3], [-1, -1, 1]); // Take the 4th channel (Alpha)
-    if (disposeInputs) inputTensor.dispose(); // Dispose the input tensor if not skipped
-    return { rgb, alpha };
+/** Flip RGBA pixel rows vertically (OIDN/GL Y convention helper). */
+export function flipRGBAY(data: Uint8ClampedArray, width: number, height: number): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(data.length);
+  const row = width * 4;
+  for (let y = 0; y < height; y++) {
+    const src = y * row;
+    const dst = (height - 1 - y) * row;
+    out.set(data.subarray(src, src + row), dst);
+  }
+  return out;
 }
 
-// Function to concatenate the alpha channel back to the RGB tensor for Tensor3D
-export function concatenateAlpha3D(rgbTensor: tf.Tensor3D, alphaTensorIn?: tf.Tensor3D, disposeInputs = false): tf.Tensor3D {
-    //if there in no alpha tensor, create one with all 1s
-    const alphaTensor = alphaTensorIn || tf.tidy(() => tf.ones(rgbTensor.shape.slice(0, 2).concat([1]) as [number, number, number], 'float32'));
-    const concatenatedTensor = tf.concat([rgbTensor, alphaTensor], -1); // Concatenate along the channel dimension
-    if (disposeInputs) tf.dispose([rgbTensor, alphaTensor]);
-    return concatenatedTensor;
+/** A css-scaled <img> reports display size; redraw to get the true pixels. */
+export function getCorrectImageData(img: HTMLImageElement): ImageData {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not get canvas context');
+  canvas.width = img.naturalWidth || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  ctx.drawImage(img, 0, 0);
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
 }
 
-// convert a tensor with linear color encoding to sRGB
-export function tensorLinearToSRGB(tensor: tf.Tensor3D): tf.Tensor3D {
-    return tf.tidy(() => {
-        const gamma = tf.scalar(2.2);
-        const sRGB = tensor.pow(gamma);
-        tensor.dispose();
-        return sRGB;
-    }) as tf.Tensor3D;
-}
-// convert a tensor with SRGB back to linear color encoding
-export function tensorSRGBToLinear(tensor: tf.Tensor3D): tf.Tensor3D {
-    return tf.tidy(() => {
-        const gamma = tf.scalar(1 / 2.2);
-        const linear = tensor.pow(gamma);
-        tensor.dispose();
-        return linear;
-    }) as tf.Tensor3D;
+export function hasSizeMissmatch(img: HTMLImageElement): boolean {
+  if (!img.naturalHeight || !img.naturalWidth) return true;
+  return img.height !== img.naturalHeight || img.width !== img.naturalWidth;
 }
 
-//* General Utils ----------------------------
-export function isMobile() {
-    return /Mobi/.test(navigator.userAgent) || // User agent contains "Mobi"
-        (window.innerWidth <= 800 && window.innerHeight <= 600) || // Small screen size
-        ('ontouchstart' in window) || // Touch capabilities
-        (navigator.maxTouchPoints > 0); // Touch points available
+//* General ----------------------------------------
+export function isMobile(): boolean {
+  return /Mobi/.test(navigator.userAgent) ||
+    (window.innerWidth <= 800 && window.innerHeight <= 600) ||
+    ('ontouchstart' in window) ||
+    (navigator.maxTouchPoints > 0);
 }
 
-//* Debug Utils ----------------------------
-export function logMemoryUsage(stage: string) {
-    const memoryInfo = tf.memory() as any;
-    console.log(`%cMemory usage at ${stage}:`, 'background-color: blue; color: white');
-    console.table({
-        numBytes: formatBytes(memoryInfo.numBytes),
-        numBytesInGPU: formatBytes(memoryInfo.numBytesInGPU),
-        numBytesInGPUAllocated: formatBytes(memoryInfo.unreliable ? 0 : memoryInfo.numBytesInGPUAllocated),
-        numBytesInGPUFree: formatBytes(memoryInfo.unreliable ? 0 : memoryInfo.numBytesInGPUFree),
-        numDataBuffers: memoryInfo.numDataBuffers,
-        numTensors: memoryInfo.numTensors
-    });
+export function formatTime(ms: number): string {
+  if (ms < 1000) return `${ms.toFixed(2)}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
+  return `${(ms / 60000).toFixed(2)}m`;
 }
 
 export function formatBytes(bytes: number): string {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${Number.parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`;
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${Number.parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`;
 }
-export function formatTime(ms: number): string {
-    if (ms < 1000) return `${ms.toFixed(2)}ms`;
-    if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
-    return `${(ms / 60000).toFixed(2)}m`;
-}
-

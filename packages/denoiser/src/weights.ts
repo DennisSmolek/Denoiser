@@ -1,84 +1,41 @@
-/* Weights from C++ rtfilter
-models.hdr           = {blobs::weights::rt_hdr,
-                        blobs::weights::rt_hdr_small};
-models.hdr_alb       = {blobs::weights::rt_hdr_alb,
-                        blobs::weights::rt_hdr_alb_small};
-models.hdr_alb_nrm   = {blobs::weights::rt_hdr_alb_nrm,
-                        blobs::weights::rt_hdr_alb_nrm_small};
-models.hdr_calb_cnrm = {blobs::weights::rt_hdr_calb_cnrm,
-                        blobs::weights::rt_hdr_calb_cnrm_small,
-                        blobs::weights::rt_hdr_calb_cnrm_large};
-models.ldr           = {blobs::weights::rt_ldr,
-                        blobs::weights::rt_ldr_small};
-models.ldr_alb       = {blobs::weights::rt_ldr_alb,
-                        blobs::weights::rt_ldr_alb_small};
-models.ldr_alb_nrm   = {blobs::weights::rt_ldr_alb_nrm,
-                        blobs::weights::rt_ldr_alb_nrm_small};
-models.ldr_calb_cnrm = {blobs::weights::rt_ldr_calb_cnrm,
-                        blobs::weights::rt_ldr_calb_cnrm_small};
-models.alb           = {blobs::weights::rt_alb,
-                        nullptr,
-                        blobs::weights::rt_alb_large};
-models.nrm           = {blobs::weights::rt_nrm,
-                        nullptr,
-                        blobs::weights::rt_nrm_large};
-                        */
+// Loads and caches the converted ONNX models (replaces the old TZA weight loader).
+// Models are large and hosted on a CDN (like the old tzas/); point `url`/`path`
+// at where the .onnx files live. Cached by name + precision.
+export class Models {
+  private static instance: Models;
+  private cache = new Map<string, Uint8Array>();
 
-import { type TensorMap, loadDefaultTZAFile, loadTZAFile, parseTZA } from "./tza";
+  /** Subdirectory under the site root (used when `url` is unset). */
+  path?: string;
+  /** Remote source for the models. */
+  url = 'https://cdn.jsdelivr.net/npm/denoiser/models';
+  /** fp32 (default) or fp16 (smaller/faster, needs the shader-f16 feature). */
+  precision: 'fp32' | 'fp16' = 'fp32';
 
-/* The "models" are just collections of weights based on these main parameters:
-If there is a beauty pass (you can denoise just albedo and normal)
-If there is a normal pass
-If there is an albedo pass
-If those passes are already clean (cleanAux)
-If the image is HDR
-If the image is sRGB (based on HDR and if its a normal)
-If the image has directionals
-The quality of the denoising
+  static getInstance(): Models {
+    if (!Models.instance) Models.instance = new Models();
+    return Models.instance;
+  }
 
-The models I expect most are ldr and ldr_calb_cnrm which is a plain beauty pass 
-or a beauty pass with CLEAN albedo and normal.
-Becasuse these are not actual tensorflow models I wont call them that, internally they
-were already typed as TensorMaps
-*/
-type Collections = Map<string, TensorMap>;
-export class Weights {
-    private static instance: Weights;
-    private collections: Collections;
+  private fileFor(name: string): string {
+    const suffix = this.precision === 'fp16' ? '.fp16.onnx' : '.onnx';
+    if (this.url) return `${this.url}/${name}${suffix}`;
+    return `/${this.path ?? 'models'}/${name}${suffix}`;
+  }
 
-    // subdirectory from the root to the weights
-    path?: string;
+  async get(name: string, overrideUrl?: string): Promise<Uint8Array> {
+    const key = `${name}.${this.precision}`;
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const url = overrideUrl ?? this.fileFor(name);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Denoiser: failed to load model from ${url} (${res.status})`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    this.cache.set(key, bytes);
+    return bytes;
+  }
 
-    // url to a remote source of the weights
-    url = 'https://cdn.jsdelivr.net/npm/denoiser/tzas';
-
-
-    private constructor() {
-        //console.log('Weights initialized...');
-        this.collections = new Map();
-    }
-
-    public static getInstance(): Weights {
-        if (!Weights.instance) Weights.instance = new Weights();
-        return Weights.instance;
-    }
-
-    async getCollection(collection = 'rt_ldr', overrideUrl?: string): Promise<TensorMap> {
-        //if we already have the collection return it
-        if (this.collections.has(collection)) return this.collections.get(collection)!;
-        // else load it remote
-        let buffer: ArrayBuffer;
-        if (overrideUrl) buffer = await loadTZAFile(overrideUrl);
-        else if (this.url) buffer = await loadTZAFile(`${this.url}/${collection}.tza`);
-        else buffer = await loadDefaultTZAFile(`${collection}.tza`, this.path);
-
-        const tensorMap = parseTZA(buffer);
-        this.collections.set(collection, tensorMap);
-        return tensorMap;
-    }
-
-    // util
-    has(collection: string) {
-        return this.collections.has(collection);
-    }
+  has(name: string): boolean {
+    return this.cache.has(`${name}.${this.precision}`);
+  }
 }

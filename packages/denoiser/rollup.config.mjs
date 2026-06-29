@@ -6,13 +6,17 @@ import filesize from 'rollup-plugin-filesize';
 import copy from 'rollup-plugin-copy';
 
 
+// onnxruntime-web ships its own wasm/jsep assets and is large — keep it external
+// (a peer/normal dependency the consumer installs) rather than bundling it.
 const external = [
+    'onnxruntime-web',
+    'onnxruntime-web/webgpu',
 ];
 
 export default [
     {
         input: "./src/index.ts",
-        //external,
+        external,
         output: [
             {
                 file: "dist/index.mjs",

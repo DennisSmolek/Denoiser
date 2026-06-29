@@ -1,14 +1,14 @@
 {
     "name": "denoiser",
-    "description": "OIDN Denoiser with tensorflow.js",
+    "description": "OIDN denoiser for the web, running fully on WebGPU via onnxruntime-web",
     "keywords": [
         "OIDN",
         "denoise",
-        "tensorflow.js",
         "denoiser",
         "unet",
         "webgpu",
-        "webgl"
+        "onnx",
+        "onnxruntime"
     ],
     "version": "0.0.11",
     "author": "Dennis Smolek",
@@ -32,7 +32,6 @@
     },
     "files": [
         "dist/**",
-        "tzas/**",
         "README.md",
         "LICENSE"
     ],
@@ -47,6 +46,7 @@
         "@rollup/plugin-typescript": "^11.1.6",
         "@typescript-eslint/eslint-plugin": "^7.7.1",
         "@typescript-eslint/parser": "^7.5.0",
+        "@webgpu/types": "^0.1.40",
         "eslint": "^9.0.0",
         "prettier": "^3.2.5",
         "rollup": "^4.14.0",
@@ -56,7 +56,6 @@
         "typescript": "^5.5.2"
     },
     "dependencies": {
-        "@tensorflow/tfjs": "^4.20.0",
-        "@tensorflow/tfjs-backend-webgpu": "^4.20.0"
+        "onnxruntime-web": "^1.27.0"
     }
 }

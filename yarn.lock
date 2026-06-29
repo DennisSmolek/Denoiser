@@ -1729,6 +1729,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@webgpu/types@npm:^0.1.40":
+  version: 0.1.71
+  resolution: "@webgpu/types@npm:0.1.71"
+  checksum: 10c0/79e83a6e3afc71e6034f85e4af848d6083c41d3275d192aadeea019b3555eb1b8757d99aaf6b4ec705a5392f3c82d1b117a7a6296bbae2c1d9b977f6861762cb
+  languageName: node
+  linkType: hard
+
 "abbrev@npm:^1.0.0":
   version: 1.1.1
   resolution: "abbrev@npm:1.1.1"
@@ -2509,11 +2516,11 @@ __metadata:
     "@rollup/plugin-commonjs": "npm:^25.0.7"
     "@rollup/plugin-node-resolve": "npm:^15.0.1"
     "@rollup/plugin-typescript": "npm:^11.1.6"
-    "@tensorflow/tfjs": "npm:^4.20.0"
-    "@tensorflow/tfjs-backend-webgpu": "npm:^4.20.0"
     "@typescript-eslint/eslint-plugin": "npm:^7.7.1"
     "@typescript-eslint/parser": "npm:^7.5.0"
+    "@webgpu/types": "npm:^0.1.40"
     eslint: "npm:^9.0.0"
+    onnxruntime-web: "npm:^1.27.0"
     prettier: "npm:^3.2.5"
     rollup: "npm:^4.14.0"
     rollup-plugin-copy: "npm:^3.5.0"
