@@ -1929,6 +1929,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"bench@workspace:examples/bench":
+  version: 0.0.0-use.local
+  resolution: "bench@workspace:examples/bench"
+  dependencies:
+    denoiser: "workspace:*"
+    onnxruntime-web: "npm:^1.27.0"
+    typescript: "npm:^5.5.2"
+    vite: "npm:^5.4.0"
+  languageName: unknown
+  linkType: soft
+
 "binary-extensions@npm:^2.0.0":
   version: 2.3.0
   resolution: "binary-extensions@npm:2.3.0"
