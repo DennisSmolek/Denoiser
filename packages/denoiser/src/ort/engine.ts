@@ -17,6 +17,8 @@ export interface EngineOptions {
   tile?: number; // square tile size (default 256; any multiple of 16)
   overlap?: number; // tile overlap (default 32)
   batch?: number; // tiles per session.run (default 8)
+  /** Model IO element type — must match the loaded .onnx (fp16 needs shader-f16). */
+  precision?: 'fp32' | 'fp16';
   wasmPaths?: string;
   /**
    * Opt-in WebGPU graph capture. Measured ~0 gain here (the tile loop is
@@ -64,6 +66,7 @@ export class DenoiseEngine {
   readonly overlap: number;
   /** Tiles per session.run — 1 when the model has static dims (legacy export). */
   batch: number;
+  readonly precision: 'fp32' | 'fp16';
   /** Stage timings from the most recent denoise() call. */
   lastStats?: DenoiseStats;
   /** True when the session runs with WebGPU graph capture enabled. */
@@ -91,6 +94,7 @@ export class DenoiseEngine {
     this.tile = opts.tile ?? 256;
     this.overlap = opts.overlap ?? 32;
     this.batch = Math.max(1, opts.batch ?? 8);
+    this.precision = opts.precision ?? 'fp32';
   }
 
   static async create(modelBytes: Uint8Array, opts: EngineOptions): Promise<DenoiseEngine> {
@@ -142,22 +146,30 @@ export class DenoiseEngine {
     e.device = (ort.env.webgpu as unknown as { device: GPUDevice }).device;
     if (!e.device) throw new Error('Denoiser: ORT did not expose a WebGPU device');
 
-    e.ops = new GpuImageOps(e.device, e.batch);
+    const f16 = e.precision === 'fp16';
+    if (f16 && !e.device.features.has('shader-f16')) {
+      // ORT requests shader-f16 on its device when the adapter has it; without
+      // it our WGSL can't read/write the fp16 model IO buffers.
+      e.session.release?.();
+      throw new Error('Denoiser: fp16 needs the shader-f16 WebGPU feature (unavailable on this device)');
+    }
+    const bpe = f16 ? 2 : 4; // bytes per model-IO element
+    e.ops = new GpuImageOps(e.device, e.batch, f16);
     const t = e.tile;
     const B = e.batch;
     e.nchwInput = e.device.createBuffer({
-      size: B * e.channels * t * t * 4,
+      size: B * e.channels * t * t * bpe,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     e.outNCHW = e.device.createBuffer({
-      size: B * 3 * t * t * 4,
+      size: B * 3 * t * t * bpe,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
     e.inputTensor = ort.Tensor.fromGpuBuffer(e.nchwInput, {
-      dataType: 'float32', dims: [B, e.channels, t, t],
+      dataType: f16 ? 'float16' : 'float32', dims: [B, e.channels, t, t],
     });
     e.outputTensor = ort.Tensor.fromGpuBuffer(e.outNCHW, {
-      dataType: 'float32', dims: [B, 3, t, t],
+      dataType: f16 ? 'float16' : 'float32', dims: [B, 3, t, t],
     });
     return e;
   }

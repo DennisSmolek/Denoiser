@@ -129,10 +129,20 @@ export class Denoiser {
     }
     this.engine?.dispose();
     this.startTimer('build');
-    const bytes = await this.models.get(name);
-    this.engine = await DenoiseEngine.create(bytes, {
-      channels, wasmPaths: this.wasmPaths, graphCapture: this.graphCapture, batch: this.batch,
-    });
+    const create = async () =>
+      DenoiseEngine.create(await this.models.get(name), {
+        channels, wasmPaths: this.wasmPaths, graphCapture: this.graphCapture,
+        batch: this.batch, precision: this.models.precision,
+      });
+    try {
+      this.engine = await create();
+    } catch (err) {
+      // fp16 requested but the device lacks shader-f16 — fall back to fp32 models.
+      if (this.models.precision !== 'fp16') throw err;
+      console.warn('Denoiser: fp16 unavailable, falling back to fp32', err);
+      this.models.precision = 'fp32';
+      this.engine = await create();
+    }
     this.activeModelName = name;
     this.stopTimer('build');
 

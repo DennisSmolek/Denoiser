@@ -17,14 +17,19 @@
 //
 // Layout is NCHW; channels is 3 (color), 6 (+albedo) or 9 (+albedo+normal).
 
-const EXTRACT_TILES = /* wgsl */ `
+// `io` is the model IO element type: 'f32', or 'f16' for fp16 models (needs the
+// shader-f16 device feature). Only the model-facing NCHW buffers change type;
+// accum/weight/resolve stay f32.
+const EXTRACT_TILES = (io: string) => /* wgsl */ `
+${io === 'f16' ? 'enable f16;' : ''}
+alias IOType = ${io};
 struct P {
   imgW:u32, imgH:u32, tile:u32, channels:u32, srgb:u32, count:u32, _p0:u32, _p1:u32,
 };
 @group(0) @binding(0) var<storage, read> color: array<u32>;
 @group(0) @binding(1) var<storage, read> albedo: array<u32>;
 @group(0) @binding(2) var<storage, read> normal: array<u32>;
-@group(0) @binding(3) var<storage, read_write> dst: array<f32>; // NCHW, count*channels*tile*tile
+@group(0) @binding(3) var<storage, read_write> dst: array<IOType>; // NCHW, count*channels*tile*tile
 @group(0) @binding(4) var<uniform> p: P;
 @group(0) @binding(5) var<storage, read> offsets: array<vec2<u32>>; // per-slot startX,startY
 
@@ -51,33 +56,35 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     col = unpack4x8unorm(color[sidx]).xyz;
     if (p.srgb == 1u) { col = srgbToLinear(col); }
   }
-  dst[base + 0u * plane + didx] = col.x;
-  dst[base + 1u * plane + didx] = col.y;
-  dst[base + 2u * plane + didx] = col.z;
+  dst[base + 0u * plane + didx] = IOType(col.x);
+  dst[base + 1u * plane + didx] = IOType(col.y);
+  dst[base + 2u * plane + didx] = IOType(col.z);
 
   if (p.channels >= 6u) {
     var alb = vec3<f32>(0.0);
     if (inside) { alb = unpack4x8unorm(albedo[sidx]).xyz; }
-    dst[base + 3u * plane + didx] = alb.x;
-    dst[base + 4u * plane + didx] = alb.y;
-    dst[base + 5u * plane + didx] = alb.z;
+    dst[base + 3u * plane + didx] = IOType(alb.x);
+    dst[base + 4u * plane + didx] = IOType(alb.y);
+    dst[base + 5u * plane + didx] = IOType(alb.z);
   }
   if (p.channels >= 9u) {
     var nrm = vec3<f32>(0.0);
     if (inside) { nrm = unpack4x8unorm(normal[sidx]).xyz * 2.0 - 1.0; }
-    dst[base + 6u * plane + didx] = nrm.x;
-    dst[base + 7u * plane + didx] = nrm.y;
-    dst[base + 8u * plane + didx] = nrm.z;
+    dst[base + 6u * plane + didx] = IOType(nrm.x);
+    dst[base + 7u * plane + didx] = IOType(nrm.y);
+    dst[base + 8u * plane + didx] = IOType(nrm.z);
   }
 }
 `;
 
-const ACCUMULATE_TILE = /* wgsl */ `
+const ACCUMULATE_TILE = (io: string) => /* wgsl */ `
+${io === 'f16' ? 'enable f16;' : ''}
+alias IOType = ${io};
 struct P {
   imgW:u32, imgH:u32, startX:u32, startY:u32, curW:u32, curH:u32,
   tileX:u32, tileY:u32, tilesX:u32, tilesY:u32, tile:u32, batchIdx:u32, overlap:f32,
 };
-@group(0) @binding(0) var<storage, read> src: array<f32>;          // NCHW model output (B*3ch)
+@group(0) @binding(0) var<storage, read> src: array<IOType>;       // NCHW model output (B*3ch)
 @group(0) @binding(1) var<storage, read_write> accum: array<f32>;  // 3*imgW*imgH
 @group(0) @binding(2) var<storage, read_write> weight: array<f32>; // imgW*imgH
 @group(0) @binding(3) var<uniform> p: P;
@@ -100,9 +107,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let sidx = ty * p.tile + tx;
   let gplane = p.imgW * p.imgH;
   let gidx = (p.startY + ty) * p.imgW + (p.startX + tx);
-  accum[0u * gplane + gidx] = accum[0u * gplane + gidx] + w * src[sbase + 0u * stile + sidx];
-  accum[1u * gplane + gidx] = accum[1u * gplane + gidx] + w * src[sbase + 1u * stile + sidx];
-  accum[2u * gplane + gidx] = accum[2u * gplane + gidx] + w * src[sbase + 2u * stile + sidx];
+  accum[0u * gplane + gidx] = accum[0u * gplane + gidx] + w * f32(src[sbase + 0u * stile + sidx]);
+  accum[1u * gplane + gidx] = accum[1u * gplane + gidx] + w * f32(src[sbase + 1u * stile + sidx]);
+  accum[2u * gplane + gidx] = accum[2u * gplane + gidx] + w * f32(src[sbase + 2u * stile + sidx]);
   weight[gidx] = weight[gidx] + w;
 }
 `;
@@ -149,14 +156,15 @@ export class GpuImageOps {
   private accumParams: GPUBuffer[]; // one 64B uniform per batch slot
   private resolveParams: GPUBuffer; // 32B
 
-  constructor(private device: GPUDevice, readonly maxBatch: number) {
+  constructor(private device: GPUDevice, readonly maxBatch: number, ioF16 = false) {
     const mk = (code: string) =>
       device.createComputePipeline({
         layout: 'auto',
         compute: { module: device.createShaderModule({ code }), entryPoint: 'main' },
       });
-    this.extractPipe = mk(EXTRACT_TILES);
-    this.accumPipe = mk(ACCUMULATE_TILE);
+    const io = ioF16 ? 'f16' : 'f32';
+    this.extractPipe = mk(EXTRACT_TILES(io));
+    this.accumPipe = mk(ACCUMULATE_TILE(io));
     this.resolvePipe = mk(RESOLVE);
     const u = (size: number) =>
       device.createBuffer({ size, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
