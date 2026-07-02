@@ -4,11 +4,12 @@
 // (table) and #json (machine-readable, window.__benchResults).
 import { Denoiser } from 'denoiser';
 
+const only = new URLSearchParams(location.search).get('only');
 const SCENARIOS = [
   { label: '512x512', w: 512, h: 512 },
   { label: '1280x720', w: 1280, h: 720 },
   { label: '1920x1080', w: 1920, h: 1080 },
-];
+].filter((s) => !only || s.label === only);
 const WARM_RUNS = 5;
 
 const status = document.querySelector<HTMLPreElement>('#status')!;
@@ -119,6 +120,7 @@ async function benchScenario(w: number, h: number, label: string): Promise<Resul
   denoiser.setInputData('color', noisy.data, w, h);
   await denoiser.build();
   const buildMs = performance.now() - tb;
+  log(`graph capture: ${(denoiser as unknown as { engine?: { graphCaptured?: boolean } })['engine']?.graphCaptured ?? 'n/a'}`);
 
   const tc = performance.now();
   let out = (await denoiser.execute(noisy)) as ImageData;

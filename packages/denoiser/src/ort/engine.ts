@@ -13,6 +13,14 @@ export interface EngineOptions {
   tile?: number; // model's fixed square size (default 256)
   overlap?: number; // tile overlap (default 32)
   wasmPaths?: string;
+  /**
+   * Opt-in WebGPU graph capture. Measured ~0 gain here (the tile loop is
+   * GPU-bound, not dispatch-bound) and onnxruntime-web 1.27.0 crashes inside
+   * its capture buffer manager at larger tile counts (createBindGroup:
+   * "Required member is undefined", reproduced at 1080p/45 tiles while
+   * 720p/24 tiles works). Off by default until upstream stabilizes.
+   */
+  graphCapture?: boolean;
 }
 
 export interface DenoiseOptions {
@@ -45,6 +53,8 @@ export class DenoiseEngine {
   readonly overlap: number;
   /** Stage timings from the most recent denoise() call. */
   lastStats?: DenoiseStats;
+  /** True when the session runs with WebGPU graph capture enabled. */
+  graphCaptured = false;
 
   private ops!: GpuImageOps;
   private nchwInput!: GPUBuffer;
@@ -75,11 +85,30 @@ export class DenoiseEngine {
     ort.env.wasm.wasmPaths =
       opts.wasmPaths ?? 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/';
 
-    e.session = await ort.InferenceSession.create(modelBytes, {
+    const sessionOpts: ort.InferenceSession.SessionOptions = {
       executionProviders: ['webgpu'],
       preferredOutputLocation: 'gpu-buffer',
       graphOptimizationLevel: 'all',
-    });
+    };
+    // Graph capture records the U-Net's GPU commands once and replays them on
+    // later runs, skipping per-run graph walking/dispatch. It requires static
+    // shapes + every op on the WebGPU EP + gpu-buffer IO (all true here), and
+    // session creation throws if the model doesn't qualify — fall back cleanly.
+    // NOTE: capture binds IO buffers on the FIRST run and never re-binds; the
+    // engine must keep reusing (and mutating) the same input/output GPUBuffers.
+    // Opt-in only — see EngineOptions.graphCapture for the ORT 1.27 crash.
+    if (opts.graphCapture) {
+      try {
+        e.session = await ort.InferenceSession.create(modelBytes, {
+          ...sessionOpts,
+          enableGraphCapture: true,
+        });
+        e.graphCaptured = true;
+      } catch (err) {
+        console.warn('Denoiser: graph capture unavailable, falling back', err);
+      }
+    }
+    if (!e.session) e.session = await ort.InferenceSession.create(modelBytes, sessionOpts);
     e.inputName = e.session.inputNames[0];
     e.outputName = e.session.outputNames[0];
     e.device = (ort.env.webgpu as unknown as { device: GPUDevice }).device;

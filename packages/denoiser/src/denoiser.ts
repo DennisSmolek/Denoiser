@@ -60,6 +60,7 @@ export class Denoiser {
   private progressListeners: Set<(p: number) => void> = new Set();
 
   private wasmPaths?: string;
+  private graphCapture = false;
 
   stats: Record<string, number | string> = {};
   private timers: Record<string, number> = {};
@@ -67,6 +68,7 @@ export class Denoiser {
   constructor(opts: DenoiserOptions = {}) {
     this.models = Models.getInstance();
     this.wasmPaths = opts.wasmPaths;
+    this.graphCapture = opts.graphCapture ?? false;
     if (opts.precision) this.models.precision = opts.precision;
     if (this.debugging) console.log('%c Denoiser initialized (WebGPU/ORT)', 'background: #d66b00; color: white;');
   }
@@ -126,7 +128,9 @@ export class Denoiser {
     this.engine?.dispose();
     this.startTimer('build');
     const bytes = await this.models.get(name);
-    this.engine = await DenoiseEngine.create(bytes, { channels, wasmPaths: this.wasmPaths });
+    this.engine = await DenoiseEngine.create(bytes, {
+      channels, wasmPaths: this.wasmPaths, graphCapture: this.graphCapture,
+    });
     this.activeModelName = name;
     this.stopTimer('build');
 

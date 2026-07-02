@@ -34,4 +34,6 @@ export interface DenoiserOptions {
   wasmPaths?: string;
   /** Use fp16 models when available (smaller/faster; needs the shader-f16 feature). */
   precision?: 'fp32' | 'fp16';
+  /** Opt-in ORT WebGPU graph capture (unstable in onnxruntime-web 1.27 at high tile counts). */
+  graphCapture?: boolean;
 }
