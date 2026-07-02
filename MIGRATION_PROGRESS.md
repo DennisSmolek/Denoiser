@@ -92,14 +92,21 @@ cd packages/denoiser && yarn build          # tsc + rollup
 cd examples/three-pathtracer-webgpu && yarn dev      # or webgpu-ort-smoke / denoiser-package-test
 ```
 
-## TODO (remaining — refinement, no unknowns)
-- **2b — zero-copy GPU IO**: feed the path tracer's GPU texture straight into the denoiser
-  (add a GPUBuffer/texture input+output path to `Denoiser`/`DenoiseEngine`), skipping the CPU
-  readback + tonemap. The main perf win and the payoff of the shared device.
+## Perf work — DONE (branch `perf-v2`, July 2026)
+**See `perf-plan.md` (plan + measured results).** Executed phases: bench harness
+(`examples/bench`), graph capture (opt-in only — ORT 1.27 crash + no gain), dynamic-dim
+models + batched tiles, true fp16 (fixed: was unusable), whole-frame runs + geometry
+ladder + scoped max-limits device patch, zero-copy texture IO (**2b DONE** — pathtracer
+example has a zero-copy HDR button; 512² 68.8→35.4ms). 1080p CPU-input path:
+188→104ms (fp16). PSNR fp16 vs fp32: 53.5dB. Critical fix: `build()` overlaps engine
+creation/disposal so releasing the last ORT session can't destroy the shared device.
+Models re-exported with named dynamic dims (`--size` for legacy static).
+
+## TODO (remaining)
 - **2c — TSL MRT G-buffer**: render albedo + view-normal (`mrt({ output, diffuse, normal })`)
-  → the 9-channel aux model, validating aux on real render data.
+  → the 9-channel aux model, validating aux on real render data (setInputTexture supports it).
 - **Cleanup**: delete the old WebGL/TFJS examples (also removes dual three@0.166); update
   `packages/denoiser/README.md` + root `README.md` (still reference tensorflow.js); changeset/major bump.
-- **Perf**: benchmark vs the old TFJS baseline; try fp16 models + `enableGraphCapture`.
+- **WebNN track**: deferred pending user research — plan in `perf-plan.md`.
 - **Later phase (user request)**: investigate where OIDN 2.x's perf gains came from (engine/data
   handling, since weights are identical) — see memory `oidn-weights-already-current`.

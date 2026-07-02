@@ -1,5 +1,9 @@
 # Performance Plan — WebGPU/ONNX Denoiser
 
+> **STATUS: EXECUTED (July 2026, branch `perf-v2`).** All phases 0–5 implemented,
+> browser-verified, one commit per phase. Measured results are at the bottom
+> (§ Results). WebNN (Phase 6) intentionally deferred pending user research.
+
 Review of the current pipeline (`packages/denoiser/src/ort/engine.ts` + `ort/wgsl.ts`),
 where the time actually goes, and a phased plan. Facts about onnxruntime-web below were
 verified against the v1.27.0 source and current docs (July 2026).
@@ -174,3 +178,46 @@ Multiplying the phases at 1080p: no per-tile stalls + captured graph + fp16 + wh
 runs should plausibly land **3–8× faster than today's loop**, with the pathtracer path
 additionally dropping its ~O(frame) CPU readback/tonemap cost entirely (Phase 5). Native
 OIDN will still win on NPU/tensor-core hardware — that gap is what the WebNN track is for.
+
+---
+
+## Results (measured, M-series Mac / Chrome / onnxruntime-web 1.27.0)
+
+Warm medians (5 runs) via `examples/bench`, quality `fast`, CPU RGBA8 input path:
+
+| scenario | Phase 0 baseline (fp32) | final fp32 | final fp16 | speedup (fp16 vs base) |
+|---|---|---|---|---|
+| 512×512  | 37.6ms (9 tiles)  | 15.9ms (1 run) | **13.7ms** | 2.7× |
+| 1280×720 | 98.7ms (24 tiles) | 52.4ms (1 run) | **45.1ms** | 2.2× |
+| 1920×1080| 188.3ms (45 tiles)| 146.7ms (1 run)| **104.1ms**| 1.8× |
+
+fp16 PSNR vs fp32: **53.5–53.6dB** (visually identical). 2560×1440 correctly falls
+back to the tile ladder (1024² tiles, batch 2, seam-free). Pathtracer example at 512²:
+old CPU path 68.8ms (float readback + JS tonemap + LDR model) → **zero-copy GPU path
+35.4ms warm** with real HDR input.
+
+### What we learned vs the plan
+- **Phase 1 (graph capture): shipped opt-in, default OFF.** Zero measured gain — the
+  loop was GPU-throughput-bound, not dispatch-bound — and ORT 1.27.0 *crashes* in its
+  capture buffer manager at 1080p/45 tiles (`createBindGroup: Required member is
+  undefined`; 720p fine; fresh session reproduces). Revisit on a future ORT.
+- **Phase 2 (batching): correct but small win** (720p 98.7→89.2ms; bit-identical
+  output batch=1 vs 8). Its real value was the dynamic-dim models + per-geometry
+  session machinery that Phase 4 is built on. Padded final batches *regressed* small
+  images (512² 37.6→59.5ms) until Phase 4's exact-size whole-frame sessions fixed it.
+- **Phase 3 (fp16): ~15%, not 2×** — ORT's WebGPU conv kernels don't double from
+  halved IO here. Also fixed: fp16 models were entirely unusable before (engine
+  hardcoded float32 tensors).
+- **Phase 4 (whole-frame): the biggest single win**, exactly as the overlap math
+  predicted (31% redundancy + padding waste + per-batch syncs all gone). Needs the
+  scoped max-limits device patch (ORT requests a minimal device; whole-frame U-Net
+  intermediates blow past the default 128–256MB buffer caps).
+- **Phase 5 (zero-copy): works end-to-end** (texture in → hdr model → texture out →
+  canvas blit; ACES tonemap in the resolve kernel). Surfaced and fixed a latent
+  shared-device bug: releasing the last ORT session **destroys the shared GPUDevice**
+  (killing three.js); `Denoiser.build()` now overlaps new-engine creation with
+  old-engine disposal. This predated the perf work — any model switch would have
+  killed the device.
+- The dominant remaining cost at 1080p is the U-Net conv work itself inside ORT
+  (readback drain), i.e. further wins need faster kernels (upstream), the `balanced`→
+  `fast` model choice, or WebNN/NPU (Phase 6, deferred).
