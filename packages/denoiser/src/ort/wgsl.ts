@@ -24,12 +24,12 @@ const EXTRACT_TILES = (io: string) => /* wgsl */ `
 ${io === 'f16' ? 'enable f16;' : ''}
 alias IOType = ${io};
 struct P {
-  imgW:u32, imgH:u32, tile:u32, channels:u32, srgb:u32, count:u32, _p0:u32, _p1:u32,
+  imgW:u32, imgH:u32, tileW:u32, tileH:u32, channels:u32, srgb:u32, count:u32, _p0:u32,
 };
 @group(0) @binding(0) var<storage, read> color: array<u32>;
 @group(0) @binding(1) var<storage, read> albedo: array<u32>;
 @group(0) @binding(2) var<storage, read> normal: array<u32>;
-@group(0) @binding(3) var<storage, read_write> dst: array<IOType>; // NCHW, count*channels*tile*tile
+@group(0) @binding(3) var<storage, read_write> dst: array<IOType>; // NCHW, count*channels*tileW*tileH
 @group(0) @binding(4) var<uniform> p: P;
 @group(0) @binding(5) var<storage, read> offsets: array<vec2<u32>>; // per-slot startX,startY
 
@@ -41,10 +41,10 @@ fn srgbToLinear(c: vec3<f32>) -> vec3<f32> {
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-  if (gid.z >= p.count || gid.x >= p.tile || gid.y >= p.tile) { return; }
-  let plane = p.tile * p.tile;
+  if (gid.z >= p.count || gid.x >= p.tileW || gid.y >= p.tileH) { return; }
+  let plane = p.tileW * p.tileH;
   let base = gid.z * p.channels * plane;
-  let didx = gid.y * p.tile + gid.x;
+  let didx = gid.y * p.tileW + gid.x;
   let off = offsets[gid.z];
   let sx = off.x + gid.x;
   let sy = off.y + gid.y;
@@ -82,7 +82,8 @@ ${io === 'f16' ? 'enable f16;' : ''}
 alias IOType = ${io};
 struct P {
   imgW:u32, imgH:u32, startX:u32, startY:u32, curW:u32, curH:u32,
-  tileX:u32, tileY:u32, tilesX:u32, tilesY:u32, tile:u32, batchIdx:u32, overlap:f32,
+  tileX:u32, tileY:u32, tilesX:u32, tilesY:u32, tileW:u32, tileH:u32,
+  batchIdx:u32, overlap:f32,
 };
 @group(0) @binding(0) var<storage, read> src: array<IOType>;       // NCHW model output (B*3ch)
 @group(0) @binding(1) var<storage, read_write> accum: array<f32>;  // 3*imgW*imgH
@@ -102,9 +103,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (p.tileX < p.tilesX - 1u) { xW = min(xW, sig(f32(p.curW - 1u - tx) / p.overlap)); }
   let w = min(yW, xW);
 
-  let stile = p.tile * p.tile;
+  let stile = p.tileW * p.tileH;
   let sbase = p.batchIdx * 3u * stile;
-  let sidx = ty * p.tile + tx;
+  let sidx = ty * p.tileW + tx;
   let gplane = p.imgW * p.imgH;
   let gidx = (p.startY + ty) * p.imgW + (p.startX + tx);
   accum[0u * gplane + gidx] = accum[0u * gplane + gidx] + w * f32(src[sbase + 0u * stile + sidx]);
@@ -143,7 +144,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 export interface AccumParams {
   imgW: number; imgH: number; startX: number; startY: number; curW: number; curH: number;
-  tileX: number; tileY: number; tilesX: number; tilesY: number; tile: number; overlap: number;
+  tileX: number; tileY: number; tilesX: number; tilesY: number;
+  tileW: number; tileH: number; overlap: number;
   batchIdx: number;
 }
 
@@ -189,18 +191,18 @@ export class GpuImageOps {
     pass.end();
   }
 
-  /** Extract `count` tiles (offsets = count pairs of startX,startY) into dst[B,C,t,t] in one dispatch. */
+  /** Extract `count` tiles (offsets = count pairs of startX,startY) into dst[B,C,tileH,tileW] in one dispatch. */
   encodeExtractTiles(
     enc: GPUCommandEncoder,
     color: GPUBuffer, albedo: GPUBuffer, normal: GPUBuffer, dst: GPUBuffer,
-    imgW: number, imgH: number, tile: number, channels: number, srgb: boolean,
+    imgW: number, imgH: number, tileW: number, tileH: number, channels: number, srgb: boolean,
     offsets: Uint32Array, count: number,
   ) {
     this.device.queue.writeBuffer(this.extractParams, 0,
-      new Uint32Array([imgW, imgH, tile, channels, srgb ? 1 : 0, count, 0, 0]));
+      new Uint32Array([imgW, imgH, tileW, tileH, channels, srgb ? 1 : 0, count, 0]));
     this.device.queue.writeBuffer(this.extractOffsets, 0, offsets, 0, count * 2);
     this.run(enc, this.extractPipe,
-      [color, albedo, normal, dst, this.extractParams, this.extractOffsets], tile, tile, count);
+      [color, albedo, normal, dst, this.extractParams, this.extractOffsets], tileW, tileH, count);
   }
 
   /**
@@ -211,11 +213,11 @@ export class GpuImageOps {
    */
   encodeAccumulateTile(enc: GPUCommandEncoder, slot: number, outNCHW: GPUBuffer, accum: GPUBuffer, weight: GPUBuffer, p: AccumParams) {
     const ab = new ArrayBuffer(64);
-    new Uint32Array(ab, 0, 12).set([
+    new Uint32Array(ab, 0, 13).set([
       p.imgW, p.imgH, p.startX, p.startY, p.curW, p.curH,
-      p.tileX, p.tileY, p.tilesX, p.tilesY, p.tile, p.batchIdx,
+      p.tileX, p.tileY, p.tilesX, p.tilesY, p.tileW, p.tileH, p.batchIdx,
     ]);
-    new Float32Array(ab, 48, 1)[0] = p.overlap;
+    new Float32Array(ab, 52, 1)[0] = p.overlap;
     const params = this.accumParams[slot];
     this.device.queue.writeBuffer(params, 0, ab);
     this.run(enc, this.accumPipe, [outNCHW, accum, weight, params], p.curW, p.curH);
