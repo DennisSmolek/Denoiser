@@ -15,10 +15,12 @@
   <body>
     <h1>three r185 WebGPUPathTracer → WebGPU/ONNX denoiser (one GPUDevice)</h1>
     <label>max samples <input id="maxSamples" type="number" value="6" min="1" max="500" style="width:5rem"></label>
-    <button id="denoise" disabled>Denoise current frame</button>
+    <button id="denoise" disabled>Denoise (CPU readback path)</button>
+    <button id="denoiseGpu" disabled>Denoise (zero-copy GPU path)</button>
     <div class="row">
       <figure><canvas id="view" width="512" height="512"></canvas><figcaption>path traced (accumulating)</figcaption></figure>
-      <figure><canvas id="out" width="512" height="512"></canvas><figcaption>denoised</figcaption></figure>
+      <figure><canvas id="out" width="512" height="512"></canvas><figcaption>denoised — CPU path (LDR input)</figcaption></figure>
+      <figure><canvas id="outGpu" width="512" height="512"></canvas><figcaption>denoised — GPU path (HDR input, no readback)</figcaption></figure>
     </div>
     <pre id="status"></pre>
     <script type="module" src="/src/main.ts"></script>

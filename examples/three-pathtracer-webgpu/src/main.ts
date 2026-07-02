@@ -88,6 +88,9 @@ async function main() {
   await denoiser.build();
   const device = denoiser.device!;
   log(`denoiser ready; sharing GPUDevice with three.js: ${device ? 'yes' : 'no'}`);
+  device.lost.then((info) => log(`DEVICE LOST: ${info.reason} — ${info.message}`));
+  device.addEventListener('uncapturederror', (e) =>
+    log(`UNCAPTURED GPU ERROR: ${(e as GPUUncapturedErrorEvent).error.message}`));
 
   // 2) three.js WebGPURenderer on the SAME device.
   const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
@@ -123,19 +126,19 @@ async function main() {
   };
   loop();
 
-  // 4) Denoise button: grab the path tracer's (tonemapped) canvas pixels and run them
-  // through the denoiser package. drawImage works across canvas context types, so this
-  // sidesteps the float StorageTexture readback entirely.
+  // 4) CPU-path denoise button (the old way, kept for comparison): float readback,
+  // JS tonemap to LDR RGBA8, denoise with the ldr model, putImageData.
   const btn = document.querySelector<HTMLButtonElement>('#denoise')!;
   const outCanvas = document.querySelector<HTMLCanvasElement>('#out')!;
   btn.disabled = false;
   btn.addEventListener('click', async () => {
-    log(`denoising at ${Math.floor(pathTracer.samples ?? 0)} samples...`);
+    log(`denoising (CPU path) at ${Math.floor(pathTracer.samples ?? 0)} samples...`);
     // Read the path tracer's linear-HDR float output target (drawImage on a WebGPU
     // canvas yields black), then tonemap (ACES) + sRGB-encode to match the display.
     const target = pathTracer._pathTracer.outputTarget;
     const w = target.width as number;
     const h = target.height as number;
+    const t0 = performance.now();
     const stub = { textures: [target] };
     const linear = (await renderer.readRenderTargetPixelsAsync(stub, 0, 0, w, h)) as Float32Array;
 
@@ -153,10 +156,51 @@ async function main() {
     }
     const img = new ImageData(rgba, w, h);
 
+    denoiser.hdr = false; // tonemapped LDR input -> ldr model
+    denoiser.srgb = false;
+    denoiser.flipOutputY = true; // render target rows arrive bottom-up
+    denoiser.flipInputY = false;
+    denoiser.tonemapOutput = false;
+    denoiser.outputMode = 'imgData';
     denoiser.setCanvas(outCanvas);
-    const t0 = performance.now();
     await denoiser.execute(img);
-    log(`denoised in ${(performance.now() - t0).toFixed(1)} ms (${w}×${h})`);
+    log(`CPU path: denoised in ${(performance.now() - t0).toFixed(1)} ms (${w}×${h}, incl. readback+tonemap)`);
+  });
+
+  // 5) Zero-copy GPU path: hand the path tracer's float StorageTexture straight to
+  // the denoiser (real linear-HDR input, hdr model), get an rgba8 texture back, and
+  // blit it to a WebGPU canvas. No CPU pixels anywhere.
+  const btnGpu = document.querySelector<HTMLButtonElement>('#denoiseGpu')!;
+  const outGpuCanvas = document.querySelector<HTMLCanvasElement>('#outGpu')!;
+  const gpuCtx = outGpuCanvas.getContext('webgpu')!;
+  gpuCtx.configure({ device, format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  btnGpu.disabled = false;
+  btnGpu.addEventListener('click', async () => {
+    log(`denoising (zero-copy GPU path) at ${Math.floor(pathTracer.samples ?? 0)} samples...`);
+    // outputTarget is the path tracer's float StorageTexture itself (not a render
+    // target). three r185 WebGPU backend: backend.get(texture).texture = GPUTexture.
+    const target = pathTracer._pathTracer.outputTarget;
+    const threeTexture = target.isTexture ? target : target.textures?.[0];
+    const gpuTexture = (renderer.backend as unknown as {
+      get: (o: unknown) => { texture?: GPUTexture };
+    }).get(threeTexture)?.texture;
+    if (!gpuTexture) { log('ERROR: could not resolve the render target’s GPUTexture'); return; }
+
+    const t0 = performance.now();
+    denoiser.hdr = true; // real linear-HDR floats -> hdr model
+    denoiser.srgb = false;
+    denoiser.flipInputY = true; // WebGPU render targets read bottom-up
+    denoiser.flipOutputY = false;
+    denoiser.tonemapOutput = true; // ACES + sRGB in the resolve kernel for display
+    denoiser.outputMode = 'gpuTexture';
+    denoiser.setInputTexture('color', gpuTexture);
+    const outTex = (await denoiser.execute()) as GPUTexture;
+
+    const enc = device.createCommandEncoder();
+    enc.copyTextureToTexture({ texture: outTex }, { texture: gpuCtx.getCurrentTexture() },
+      { width: outTex.width, height: outTex.height });
+    device.queue.submit([enc.finish()]);
+    log(`GPU path: denoised in ${(performance.now() - t0).toFixed(1)} ms (${outTex.width}×${outTex.height}, zero-copy)`);
   });
 }
 

@@ -49,7 +49,23 @@ export interface DenoiseOptions {
   srgb?: boolean; // input is sRGB -> convert to linear before the model, back after
   hdr?: boolean; // skip the [0,1] output clamp
   flipY?: boolean; // flip the output vertically (in the resolve kernel, free)
+  /** ACES tonemap + sRGB-encode the output (for HDR results going straight to a canvas). */
+  tonemap?: boolean;
   onProgress?: (p: number) => void;
+}
+
+/** Zero-copy input: float textures living on the shared device (e.g. render targets). */
+export interface TextureInputs {
+  color: GPUTexture;
+  albedo?: GPUTexture; // [0,1] floats
+  normal?: GPUTexture; // already [-1,1] floats (G-buffer convention)
+}
+
+export interface TextureDenoiseOptions extends DenoiseOptions {
+  /** Source textures are bottom-up (WebGPU render targets) — flip reads. */
+  inputFlipY?: boolean;
+  /** Resolve into an rgba8unorm GPUTexture and return it (no CPU readback). */
+  toTexture?: boolean;
 }
 
 /** Wall-clock stage timings for the last denoise() call (all in ms). */
@@ -123,6 +139,7 @@ export class DenoiseEngine {
   private weight?: GPUBuffer;
   private outPixels?: GPUBuffer;
   private readback?: GPUBuffer;
+  private outTexture?: GPUTexture;
 
   private constructor(opts: EngineOptions) {
     this.channels = opts.channels;
@@ -267,16 +284,23 @@ export class DenoiseEngine {
     return { tileW: this.tile, tileH: this.tile, batch: 1, overlap: this.overlap };
   }
 
-  private ensureImageBuffers(w: number, h: number) {
-    if (this.imgW === w && this.imgH === h && this.color) return;
+  private ensureImageBuffers(w: number, h: number, cpuInput: boolean) {
+    const haveInputs = !cpuInput || !!this.color;
+    if (this.imgW === w && this.imgH === h && this.accum && haveInputs) return;
     [this.color, this.albedo, this.normal, this.accum, this.weight, this.outPixels, this.readback]
       .forEach((b) => b?.destroy());
+    this.outTexture?.destroy();
+    this.outTexture = undefined;
     const d = this.device;
     const px = w * h;
     const stor = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
-    this.color = d.createBuffer({ size: px * 4, usage: stor });
-    this.albedo = this.channels >= 6 ? d.createBuffer({ size: px * 4, usage: stor }) : undefined;
-    this.normal = this.channels >= 9 ? d.createBuffer({ size: px * 4, usage: stor }) : undefined;
+    if (cpuInput) {
+      this.color = d.createBuffer({ size: px * 4, usage: stor });
+      this.albedo = this.channels >= 6 ? d.createBuffer({ size: px * 4, usage: stor }) : undefined;
+      this.normal = this.channels >= 9 ? d.createBuffer({ size: px * 4, usage: stor }) : undefined;
+    } else {
+      this.color = this.albedo = this.normal = undefined;
+    }
     this.accum = d.createBuffer({ size: 3 * px * 4, usage: stor });
     this.weight = d.createBuffer({ size: px * 4, usage: stor });
     this.outPixels = d.createBuffer({ size: px * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
@@ -285,16 +309,46 @@ export class DenoiseEngine {
     this.imgH = h;
   }
 
+  private ensureOutTexture(w: number, h: number): GPUTexture {
+    if (!this.outTexture || this.outTexture.width !== w || this.outTexture.height !== h) {
+      this.outTexture?.destroy();
+      this.outTexture = this.device.createTexture({
+        size: { width: w, height: h },
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING,
+      });
+    }
+    return this.outTexture;
+  }
+
   /** Denoise a full-resolution image (whole-frame or tiled+blended). Returns RGBA8 pixels (alpha = 255). */
   async denoise(color: Uint8ClampedArray, w: number, h: number, opts: DenoiseOptions = {}): Promise<Uint8ClampedArray> {
     if (color.length !== w * h * 4) throw new Error(`Denoiser: expected ${w * h * 4} color bytes, got ${color.length}`);
     if (this.channels >= 6 && !opts.albedo) throw new Error('Denoiser: model requires an albedo input');
     if (this.channels >= 9 && !opts.normal) throw new Error('Denoiser: model requires a normal input');
+    return this.process({ cpu: { color, albedo: opts.albedo, normal: opts.normal } }, w, h, opts) as Promise<Uint8ClampedArray>;
+  }
 
+  /**
+   * Zero-copy denoise: read float input textures on the shared device directly
+   * (no CPU round-trip, no 8-bit quantization — feed HDR models real HDR).
+   * With toTexture, also skips the readback and returns an rgba8unorm texture
+   * (owned by the engine, valid until the next call / size change / dispose).
+   */
+  async denoiseTextures(inputs: TextureInputs, opts: TextureDenoiseOptions = {}): Promise<Uint8ClampedArray | GPUTexture> {
+    if (this.channels >= 6 && !inputs.albedo) throw new Error('Denoiser: model requires an albedo input');
+    if (this.channels >= 9 && !inputs.normal) throw new Error('Denoiser: model requires a normal input');
+    return this.process({ tex: inputs }, inputs.color.width, inputs.color.height, opts);
+  }
+
+  private async process(
+    src: { cpu?: { color: Uint8ClampedArray; albedo?: Uint8ClampedArray; normal?: Uint8ClampedArray }; tex?: TextureInputs },
+    w: number, h: number, opts: TextureDenoiseOptions,
+  ): Promise<Uint8ClampedArray | GPUTexture> {
     const geo = await this.ensureGeo(this.planFor(w, h));
     const { tileW, tileH, batch: B, overlap } = geo.plan;
 
-    this.ensureImageBuffers(w, h);
+    this.ensureImageBuffers(w, h, !!src.cpu);
     const d = this.device;
     const strideX = tileW - overlap;
     const strideY = tileH - overlap;
@@ -317,9 +371,11 @@ export class DenoiseEngine {
     const batches = Math.ceil(total / B);
 
     const tStart = performance.now();
-    d.queue.writeBuffer(this.color!, 0, color);
-    if (opts.albedo) d.queue.writeBuffer(this.albedo!, 0, opts.albedo);
-    if (opts.normal) d.queue.writeBuffer(this.normal!, 0, opts.normal);
+    if (src.cpu) {
+      d.queue.writeBuffer(this.color!, 0, src.cpu.color);
+      if (src.cpu.albedo) d.queue.writeBuffer(this.albedo!, 0, src.cpu.albedo);
+      if (src.cpu.normal) d.queue.writeBuffer(this.normal!, 0, src.cpu.normal);
+    }
 
     const clr = d.createCommandEncoder();
     clr.clearBuffer(this.accum!);
@@ -327,8 +383,11 @@ export class DenoiseEngine {
     d.queue.submit([clr.finish()]);
     const tUpload = performance.now();
 
-    const albedoBuf = this.albedo ?? this.color!;
-    const normalBuf = this.normal ?? this.color!;
+    const albedoBuf = this.albedo ?? this.color;
+    const normalBuf = this.normal ?? this.color;
+    const colorView = src.tex?.color.createView();
+    const albedoView = src.tex ? (src.tex.albedo ?? src.tex.color).createView() : undefined;
+    const normalView = src.tex ? (src.tex.normal ?? src.tex.color).createView() : undefined;
     const offsets = new Uint32Array(Math.max(this.ops.maxBatch, B) * 2);
     let encodeMs = 0;
     let runMs = 0;
@@ -342,9 +401,15 @@ export class DenoiseEngine {
         offsets[i * 2 + 1] = chunk[i].startY;
       }
       const e1 = d.createCommandEncoder();
-      this.ops.encodeExtractTiles(
-        e1, this.color!, albedoBuf, normalBuf, geo.nchwInput,
-        w, h, tileW, tileH, this.channels, !!opts.srgb, offsets, chunk.length);
+      if (src.tex) {
+        this.ops.encodeExtractTilesTex(
+          e1, colorView!, albedoView!, normalView!, geo.nchwInput,
+          w, h, tileW, tileH, this.channels, !!opts.srgb, !!opts.inputFlipY, offsets, chunk.length);
+      } else {
+        this.ops.encodeExtractTiles(
+          e1, this.color!, albedoBuf!, normalBuf!, geo.nchwInput,
+          w, h, tileW, tileH, this.channels, !!opts.srgb, offsets, chunk.length);
+      }
       d.queue.submit([e1.finish()]);
       const t1 = performance.now();
       encodeMs += t1 - t0;
@@ -372,15 +437,28 @@ export class DenoiseEngine {
     }
 
     const tTiles = performance.now();
-    const e3 = d.createCommandEncoder();
-    this.ops.encodeResolve(
-      e3, this.accum!, this.weight!, this.outPixels!, w, h, !!opts.srgb, !!opts.hdr, !!opts.flipY);
-    e3.copyBufferToBuffer(this.outPixels!, 0, this.readback!, 0, w * h * 4);
-    d.queue.submit([e3.finish()]);
+    let out: Uint8ClampedArray | GPUTexture;
+    if (opts.toTexture) {
+      const tex = this.ensureOutTexture(w, h);
+      const e3 = d.createCommandEncoder();
+      this.ops.encodeResolveToTexture(
+        e3, this.accum!, this.weight!, tex.createView(),
+        w, h, !!opts.srgb, !!opts.hdr, !!opts.flipY, !!opts.tonemap);
+      d.queue.submit([e3.finish()]);
+      await d.queue.onSubmittedWorkDone();
+      out = tex;
+    } else {
+      const e3 = d.createCommandEncoder();
+      this.ops.encodeResolve(
+        e3, this.accum!, this.weight!, this.outPixels!,
+        w, h, !!opts.srgb, !!opts.hdr, !!opts.flipY, !!opts.tonemap);
+      e3.copyBufferToBuffer(this.outPixels!, 0, this.readback!, 0, w * h * 4);
+      d.queue.submit([e3.finish()]);
 
-    await this.readback!.mapAsync(GPUMapMode.READ);
-    const out = new Uint8ClampedArray(this.readback!.getMappedRange().slice(0));
-    this.readback!.unmap();
+      await this.readback!.mapAsync(GPUMapMode.READ);
+      out = new Uint8ClampedArray(this.readback!.getMappedRange().slice(0));
+      this.readback!.unmap();
+    }
     const tEnd = performance.now();
     this.lastStats = {
       width: w, height: h, tiles: total, batches,
@@ -406,6 +484,7 @@ export class DenoiseEngine {
   dispose() {
     [this.color, this.albedo, this.normal, this.accum, this.weight, this.outPixels, this.readback]
       .forEach((b) => b?.destroy());
+    this.outTexture?.destroy();
     this.geos.forEach((g) => this.releaseGeo(g));
     this.geos.clear();
   }

@@ -10,7 +10,7 @@ export type ImgInput =
   | ImageBitmap
   | OffscreenCanvas;
 
-export type OutputMode = 'imgData' | 'float32';
+export type OutputMode = 'imgData' | 'float32' | 'gpuTexture';
 
 export type ListenerCallback = (result: unknown) => void;
 

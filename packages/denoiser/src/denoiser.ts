@@ -7,7 +7,8 @@ import type {
 } from './types';
 
 interface InputImage {
-  data: Uint8ClampedArray;
+  data?: Uint8ClampedArray;
+  texture?: GPUTexture;
   width: number;
   height: number;
 }
@@ -39,6 +40,10 @@ export class Denoiser {
   };
 
   flipOutputY = false;
+  /** Flip texture-input reads (WebGPU render targets are bottom-up). */
+  flipInputY = false;
+  /** ACES tonemap + sRGB-encode the output — for HDR results displayed directly. */
+  tonemapOutput = false;
   outputMode: OutputMode = 'imgData';
   debugging = false;
 
@@ -127,13 +132,17 @@ export class Denoiser {
       this.isDirty = false;
       return;
     }
-    this.engine?.dispose();
     this.startTimer('build');
     const create = async () =>
       DenoiseEngine.create(await this.models.get(name), {
         channels, wasmPaths: this.wasmPaths, graphCapture: this.graphCapture,
         batch: this.batch, precision: this.models.precision,
       });
+    // Create the NEW engine before disposing the old: releasing the last ORT
+    // session destroys the shared GPUDevice (taking three.js and any canvas
+    // contexts down with it). Overlapping them keeps the device alive across
+    // model switches. On failure the old engine keeps working.
+    const oldEngine = this.engine;
     try {
       this.engine = await create();
     } catch (err) {
@@ -143,6 +152,7 @@ export class Denoiser {
       this.models.precision = 'fp32';
       this.engine = await create();
     }
+    oldEngine?.dispose();
     this.activeModelName = name;
     this.stopTimer('build');
 
@@ -178,20 +188,35 @@ export class Denoiser {
 
     const albedo = this.inputs.get('albedo');
     const normal = this.inputs.get('normal');
+    const useTextures = !!color.texture;
+    if (useTextures && ((albedo && !albedo.texture) || (normal && !normal.texture))) {
+      throw new Error('Denoiser: cannot mix texture and pixel-data inputs');
+    }
 
     this.startTimer('inference');
-    const out = await this.engine!.denoise(color.data, color.width, color.height, {
-      albedo: albedo?.data,
-      normal: normal?.data,
+    const common = {
       srgb: this.props.srgb,
       hdr: this.props.hdr,
       flipY: this.flipOutputY, // folded into the resolve kernel (free)
-      onProgress: (p) => this.progressListeners.forEach((l) => l(p)),
-    });
+      tonemap: this.tonemapOutput,
+      onProgress: (p: number) => this.progressListeners.forEach((l) => l(p)),
+    };
+    const out = useTextures
+      ? await this.engine!.denoiseTextures(
+          { color: color.texture!, albedo: albedo?.texture, normal: normal?.texture },
+          { ...common, inputFlipY: this.flipInputY, toTexture: this.outputMode === 'gpuTexture' })
+      : await this.engine!.denoise(color.data!, color.width, color.height, {
+          ...common, albedo: albedo?.data, normal: normal?.data,
+        });
     this.stopTimer('inference');
 
     if (this.aborted) return this.finishAbort();
-    return this.handleReturn(out, color.width, color.height);
+    if (out instanceof Uint8ClampedArray) return this.handleReturn(out, color.width, color.height);
+    // GPUTexture result (zero-copy path) — hand it straight back / to listeners.
+    this.listeners.forEach((_mode, cb) => cb(out));
+    this.stopTimer('execution');
+    this.logStats();
+    return this.listeners.size === 0 ? out : undefined;
   }
 
   private async handleReturn(rgba: Uint8ClampedArray, width: number, height: number) {
@@ -249,6 +274,26 @@ export class Denoiser {
       this.isDirty = true;
     }
     this.inputs.set(name, { data: finalData, width, height });
+  }
+
+  /**
+   * Zero-copy input: a float texture on the shared GPUDevice (render target,
+   * G-buffer plane). No CPU round-trip and no 8-bit quantization — the way to
+   * feed real HDR into the hdr models. Set `flipInputY` for bottom-up targets.
+   */
+  setInputTexture(name: InputName, texture: GPUTexture) {
+    if (name === 'color') {
+      this.props.width = texture.width;
+      this.props.height = texture.height;
+      this.props.useColor = true;
+    } else if (name === 'albedo') {
+      this.props.useAlbedo = true;
+      this.isDirty = true;
+    } else if (name === 'normal') {
+      this.props.useNormal = true;
+      this.isDirty = true;
+    }
+    this.inputs.set(name, { texture, width: texture.width, height: texture.height });
   }
 
   /** Set raw RGBA8 (or already-shaped) pixel data directly. */
