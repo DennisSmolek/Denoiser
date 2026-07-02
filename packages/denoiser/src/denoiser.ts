@@ -75,6 +75,16 @@ export class Denoiser {
   /** The GPUDevice ORT created — pass to three.js WebGPURenderer for zero-copy interop. */
   get device(): GPUDevice | undefined { return this.engine?.device; }
 
+  /** Per-stage wall-clock timings from the most recent execution (for benchmarking). */
+  get lastStats() { return this.engine?.lastStats; }
+
+  /** Tile grid the engine would use for the current input size. */
+  get tileInfo() {
+    if (!this.engine) return undefined;
+    const { tilesX, tilesY } = this.engine.tileGrid(this.props.width, this.props.height);
+    return { tilesX, tilesY, tile: this.engine.tile, overlap: this.engine.overlap };
+  }
+
   get backendReady() { return this.backendLoaded; }
 
   set weightsUrl(url: string) { this.models.url = url; }

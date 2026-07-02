@@ -1,0 +1,20 @@
+{
+  "name": "bench",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Denoiser performance benchmark harness (Phase 0 of perf-plan.md).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "denoiser": "workspace:*"
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.27.0",
+    "typescript": "^5.5.2",
+    "vite": "^5.4.0"
+  }
+}

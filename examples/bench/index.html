@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>denoiser — benchmark harness</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #1a202c; color: #e2e8f0; }
+      .row { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center; }
+      canvas { border: 1px solid #4a5568; max-width: 384px; max-height: 384px; }
+      button, select { margin: 0.5rem 0.5rem 0.5rem 0; padding: 0.5rem 1rem; cursor: pointer; }
+      pre { background: #2d3748; padding: 0.75rem; border-radius: 4px; min-height: 2rem; white-space: pre-wrap; font-size: 12px; }
+      table { border-collapse: collapse; margin: 1rem 0; font-size: 13px; }
+      th, td { border: 1px solid #4a5568; padding: 4px 10px; text-align: right; }
+      th:first-child, td:first-child { text-align: left; }
+    </style>
+  </head>
+  <body>
+    <h1>denoiser bench — WebGPU/ONNX</h1>
+    <div class="row">
+      <label>precision
+        <select id="precision"><option value="fp32" selected>fp32</option><option value="fp16">fp16</option></select>
+      </label>
+      <label>quality
+        <select id="quality"><option value="fast" selected>fast (small)</option><option value="balanced">balanced</option></select>
+      </label>
+      <button id="runAll" disabled>Run all scenarios</button>
+    </div>
+    <table id="results"><thead><tr>
+      <th>scenario</th><th>tiles</th><th>build ms</th><th>cold ms</th><th>warm ms (median)</th>
+      <th>upload</th><th>encode</th><th>run</th><th>resolve</th><th>PSNR vs fp32</th>
+    </tr></thead><tbody></tbody></table>
+    <div class="row">
+      <figure><canvas id="noisy"></canvas><figcaption>noisy input (last)</figcaption></figure>
+      <figure><canvas id="clean"></canvas><figcaption>denoised (last)</figcaption></figure>
+    </div>
+    <pre id="status"></pre>
+    <h3>results JSON</h3>
+    <pre id="json"></pre>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

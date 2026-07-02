@@ -23,6 +23,18 @@ export interface DenoiseOptions {
   onProgress?: (p: number) => void;
 }
 
+/** Wall-clock stage timings for the last denoise() call (all in ms). */
+export interface DenoiseStats {
+  width: number;
+  height: number;
+  tiles: number;
+  uploadMs: number; // input writeBuffer + accum/weight clear
+  encodeMs: number; // WGSL extract/accumulate encode+submit (CPU side)
+  runMs: number; // sum of awaited session.run() calls
+  resolveMs: number; // resolve pass + readback map
+  totalMs: number;
+}
+
 export class DenoiseEngine {
   private session!: ort.InferenceSession;
   device!: GPUDevice;
@@ -31,6 +43,8 @@ export class DenoiseEngine {
   channels = 3;
   readonly tile: number;
   readonly overlap: number;
+  /** Stage timings from the most recent denoise() call. */
+  lastStats?: DenoiseStats;
 
   private ops!: GpuImageOps;
   private nchwInput!: GPUBuffer;
@@ -122,6 +136,7 @@ export class DenoiseEngine {
     const tilesY = Math.ceil(h / stride);
     const total = tilesX * tilesY;
 
+    const tStart = performance.now();
     d.queue.writeBuffer(this.color!, 0, color);
     if (opts.albedo) d.queue.writeBuffer(this.albedo!, 0, opts.albedo);
     if (opts.normal) d.queue.writeBuffer(this.normal!, 0, opts.normal);
@@ -130,9 +145,12 @@ export class DenoiseEngine {
     clr.clearBuffer(this.accum!);
     clr.clearBuffer(this.weight!);
     d.queue.submit([clr.finish()]);
+    const tUpload = performance.now();
 
     const albedoBuf = this.albedo ?? this.color!;
     const normalBuf = this.normal ?? this.color!;
+    let encodeMs = 0;
+    let runMs = 0;
     let done = 0;
     for (let ty = 0; ty < tilesY; ty++) {
       for (let tx = 0; tx < tilesX; tx++) {
@@ -141,15 +159,20 @@ export class DenoiseEngine {
         const curW = Math.min(TILE, w - startX);
         const curH = Math.min(TILE, h - startY);
 
+        let t0 = performance.now();
         const e1 = d.createCommandEncoder();
         this.ops.encodeExtractTile(
           e1, this.color!, albedoBuf, normalBuf, this.nchwInput!,
           w, h, startX, startY, TILE, this.channels, !!opts.srgb);
         d.queue.submit([e1.finish()]);
+        let t1 = performance.now();
+        encodeMs += t1 - t0;
 
         await this.session.run(
           { [this.inputName]: this.inputTensor },
           { [this.outputName]: this.outputTensor });
+        t0 = performance.now();
+        runMs += t0 - t1;
 
         const e2 = d.createCommandEncoder();
         this.ops.encodeAccumulateTile(e2, this.outNCHW!, this.accum!, this.weight!, {
@@ -157,10 +180,12 @@ export class DenoiseEngine {
           tileX: tx, tileY: ty, tilesX, tilesY, tile: TILE, overlap: this.overlap,
         });
         d.queue.submit([e2.finish()]);
+        encodeMs += performance.now() - t0;
         opts.onProgress?.(++done / total);
       }
     }
 
+    const tTiles = performance.now();
     const e3 = d.createCommandEncoder();
     this.ops.encodeResolve(e3, this.accum!, this.weight!, this.outPixels!, w, h, !!opts.srgb, !!opts.hdr);
     e3.copyBufferToBuffer(this.outPixels!, 0, this.readback!, 0, w * h * 4);
@@ -169,6 +194,14 @@ export class DenoiseEngine {
     await this.readback!.mapAsync(GPUMapMode.READ);
     const out = new Uint8ClampedArray(this.readback!.getMappedRange().slice(0));
     this.readback!.unmap();
+    const tEnd = performance.now();
+    this.lastStats = {
+      width: w, height: h, tiles: total,
+      uploadMs: tUpload - tStart,
+      encodeMs, runMs,
+      resolveMs: tEnd - tTiles,
+      totalMs: tEnd - tStart,
+    };
     return out;
   }
 
