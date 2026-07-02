@@ -4,7 +4,9 @@
 // (table) and #json (machine-readable, window.__benchResults).
 import { Denoiser } from 'denoiser';
 
-const only = new URLSearchParams(location.search).get('only');
+const params = new URLSearchParams(location.search);
+const only = params.get('only');
+const batchParam = params.get('batch') ? Number(params.get('batch')) : undefined;
 const SCENARIOS = [
   { label: '512x512', w: 512, h: 512 },
   { label: '1280x720', w: 1280, h: 720 },
@@ -108,7 +110,7 @@ async function benchScenario(w: number, h: number, label: string): Promise<Resul
   const quality = qualitySel.value as 'fast' | 'balanced';
   log(`--- ${label} (${precision}, ${quality}) ---`);
 
-  const denoiser = new Denoiser({ precision });
+  const denoiser = new Denoiser({ precision, batch: batchParam });
   denoiser.weightsUrl = '/models';
   denoiser.quality = quality;
 
@@ -173,9 +175,24 @@ async function runAll() {
   }
 }
 
+// Ad-hoc single run for automated verification (returns pixels + stage stats).
+(window as unknown as Record<string, unknown>).__denoiseOnce = async (
+  w: number, h: number,
+  opts: { precision?: 'fp32' | 'fp16'; batch?: number; quality?: 'fast' | 'balanced' } = {},
+) => {
+  const dn = new Denoiser({ precision: opts.precision ?? 'fp32', batch: opts.batch });
+  dn.weightsUrl = '/models';
+  dn.quality = opts.quality ?? 'fast';
+  const out = (await dn.execute(makeNoisy(w, h))) as ImageData;
+  const stats = dn.lastStats;
+  dn.dispose();
+  return { data: out.data, stats };
+};
+(window as unknown as Record<string, unknown>).__psnr = psnr;
+
 async function main() {
   if (!('gpu' in navigator)) { log('ERROR: WebGPU not available.'); return; }
-  log('bench ready — pick precision/quality and hit Run.');
+  log(`bench ready — pick precision/quality and hit Run.${batchParam ? ` (batch=${batchParam})` : ''}`);
   runAllBtn.disabled = false;
   runAllBtn.addEventListener('click', runAll);
 }

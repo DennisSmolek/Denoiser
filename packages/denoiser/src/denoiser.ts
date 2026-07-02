@@ -61,6 +61,7 @@ export class Denoiser {
 
   private wasmPaths?: string;
   private graphCapture = false;
+  private batch?: number;
 
   stats: Record<string, number | string> = {};
   private timers: Record<string, number> = {};
@@ -69,6 +70,7 @@ export class Denoiser {
     this.models = Models.getInstance();
     this.wasmPaths = opts.wasmPaths;
     this.graphCapture = opts.graphCapture ?? false;
+    this.batch = opts.batch;
     if (opts.precision) this.models.precision = opts.precision;
     if (this.debugging) console.log('%c Denoiser initialized (WebGPU/ORT)', 'background: #d66b00; color: white;');
   }
@@ -129,7 +131,7 @@ export class Denoiser {
     this.startTimer('build');
     const bytes = await this.models.get(name);
     this.engine = await DenoiseEngine.create(bytes, {
-      channels, wasmPaths: this.wasmPaths, graphCapture: this.graphCapture,
+      channels, wasmPaths: this.wasmPaths, graphCapture: this.graphCapture, batch: this.batch,
     });
     this.activeModelName = name;
     this.stopTimer('build');
@@ -173,13 +175,13 @@ export class Denoiser {
       normal: normal?.data,
       srgb: this.props.srgb,
       hdr: this.props.hdr,
+      flipY: this.flipOutputY, // folded into the resolve kernel (free)
       onProgress: (p) => this.progressListeners.forEach((l) => l(p)),
     });
     this.stopTimer('inference');
 
     if (this.aborted) return this.finishAbort();
-    const finalRGBA = this.flipOutputY ? flipRGBAY(out, color.width, color.height) : out;
-    return this.handleReturn(finalRGBA, color.width, color.height);
+    return this.handleReturn(out, color.width, color.height);
   }
 
   private async handleReturn(rgba: Uint8ClampedArray, width: number, height: number) {

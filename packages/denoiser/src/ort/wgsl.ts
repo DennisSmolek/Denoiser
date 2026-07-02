@@ -2,25 +2,31 @@
 // for the old TensorFlow.js tensor math (normalization, layout, tiling, blend).
 //
 // Kernels:
-//   extractTile  — pull a 256² tile (offset, zero-padded) from up to three full
-//                  RGBA8 images (color [+albedo +normal]) into a planar NCHW input.
-//                  color/albedo normalized to [0,1] (optionally sRGB->linear);
-//                  normal mapped to OIDN's [-1,1].
-//   accumulate   — blend a model-output tile into accum + weight buffers using the
-//                  min-of-sigmoid overlap mask (matches the old tiler.ts).
-//   resolve      — accum / weight -> RGBA8, optional linear->sRGB, LDR clamp.
+//   extractTiles — pull a BATCH of square tiles (per-tile offsets, zero-padded)
+//                  from up to three full RGBA8 images (color [+albedo +normal])
+//                  into a planar [B,C,tile,tile] NCHW input in one dispatch
+//                  (workgroup z = batch slot). color/albedo normalized to [0,1]
+//                  (optionally sRGB->linear); normal mapped to OIDN's [-1,1].
+//   accumulate   — blend ONE model-output tile (by batch slot) into accum +
+//                  weight buffers using the min-of-sigmoid overlap mask
+//                  (matches the old tiler.ts). Overlapping tiles must land in
+//                  separate compute passes: pass boundaries synchronize the
+//                  read-modify-write on accum/weight; z-batching them would race.
+//   resolve      — accum / weight -> RGBA8, optional linear->sRGB, LDR clamp,
+//                  optional Y flip.
 //
 // Layout is NCHW; channels is 3 (color), 6 (+albedo) or 9 (+albedo+normal).
 
-const EXTRACT_TILE = /* wgsl */ `
+const EXTRACT_TILES = /* wgsl */ `
 struct P {
-  imgW:u32, imgH:u32, startX:u32, startY:u32, tile:u32, channels:u32, srgb:u32, _pad:u32,
+  imgW:u32, imgH:u32, tile:u32, channels:u32, srgb:u32, count:u32, _p0:u32, _p1:u32,
 };
 @group(0) @binding(0) var<storage, read> color: array<u32>;
 @group(0) @binding(1) var<storage, read> albedo: array<u32>;
 @group(0) @binding(2) var<storage, read> normal: array<u32>;
-@group(0) @binding(3) var<storage, read_write> dst: array<f32>; // NCHW, channels*tile*tile
+@group(0) @binding(3) var<storage, read_write> dst: array<f32>; // NCHW, count*channels*tile*tile
 @group(0) @binding(4) var<uniform> p: P;
+@group(0) @binding(5) var<storage, read> offsets: array<vec2<u32>>; // per-slot startX,startY
 
 fn srgbToLinear(c: vec3<f32>) -> vec3<f32> {
   let hi = pow((c + 0.055) / 1.055, vec3<f32>(2.4));
@@ -28,13 +34,15 @@ fn srgbToLinear(c: vec3<f32>) -> vec3<f32> {
   return select(lo, hi, c > vec3<f32>(0.04045));
 }
 
-@compute @workgroup_size(8, 8)
+@compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-  if (gid.x >= p.tile || gid.y >= p.tile) { return; }
+  if (gid.z >= p.count || gid.x >= p.tile || gid.y >= p.tile) { return; }
   let plane = p.tile * p.tile;
+  let base = gid.z * p.channels * plane;
   let didx = gid.y * p.tile + gid.x;
-  let sx = p.startX + gid.x;
-  let sy = p.startY + gid.y;
+  let off = offsets[gid.z];
+  let sx = off.x + gid.x;
+  let sy = off.y + gid.y;
   let inside = sx < p.imgW && sy < p.imgH;
   let sidx = select(0u, sy * p.imgW + sx, inside);
 
@@ -43,23 +51,23 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     col = unpack4x8unorm(color[sidx]).xyz;
     if (p.srgb == 1u) { col = srgbToLinear(col); }
   }
-  dst[0u * plane + didx] = col.x;
-  dst[1u * plane + didx] = col.y;
-  dst[2u * plane + didx] = col.z;
+  dst[base + 0u * plane + didx] = col.x;
+  dst[base + 1u * plane + didx] = col.y;
+  dst[base + 2u * plane + didx] = col.z;
 
   if (p.channels >= 6u) {
     var alb = vec3<f32>(0.0);
     if (inside) { alb = unpack4x8unorm(albedo[sidx]).xyz; }
-    dst[3u * plane + didx] = alb.x;
-    dst[4u * plane + didx] = alb.y;
-    dst[5u * plane + didx] = alb.z;
+    dst[base + 3u * plane + didx] = alb.x;
+    dst[base + 4u * plane + didx] = alb.y;
+    dst[base + 5u * plane + didx] = alb.z;
   }
   if (p.channels >= 9u) {
     var nrm = vec3<f32>(0.0);
     if (inside) { nrm = unpack4x8unorm(normal[sidx]).xyz * 2.0 - 1.0; }
-    dst[6u * plane + didx] = nrm.x;
-    dst[7u * plane + didx] = nrm.y;
-    dst[8u * plane + didx] = nrm.z;
+    dst[base + 6u * plane + didx] = nrm.x;
+    dst[base + 7u * plane + didx] = nrm.y;
+    dst[base + 8u * plane + didx] = nrm.z;
   }
 }
 `;
@@ -67,9 +75,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 const ACCUMULATE_TILE = /* wgsl */ `
 struct P {
   imgW:u32, imgH:u32, startX:u32, startY:u32, curW:u32, curH:u32,
-  tileX:u32, tileY:u32, tilesX:u32, tilesY:u32, tile:u32, _pad:u32, overlap:f32,
+  tileX:u32, tileY:u32, tilesX:u32, tilesY:u32, tile:u32, batchIdx:u32, overlap:f32,
 };
-@group(0) @binding(0) var<storage, read> src: array<f32>;          // NCHW model output (3ch)
+@group(0) @binding(0) var<storage, read> src: array<f32>;          // NCHW model output (B*3ch)
 @group(0) @binding(1) var<storage, read_write> accum: array<f32>;  // 3*imgW*imgH
 @group(0) @binding(2) var<storage, read_write> weight: array<f32>; // imgW*imgH
 @group(0) @binding(3) var<uniform> p: P;
@@ -88,18 +96,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let w = min(yW, xW);
 
   let stile = p.tile * p.tile;
+  let sbase = p.batchIdx * 3u * stile;
   let sidx = ty * p.tile + tx;
   let gplane = p.imgW * p.imgH;
   let gidx = (p.startY + ty) * p.imgW + (p.startX + tx);
-  accum[0u * gplane + gidx] = accum[0u * gplane + gidx] + w * src[0u * stile + sidx];
-  accum[1u * gplane + gidx] = accum[1u * gplane + gidx] + w * src[1u * stile + sidx];
-  accum[2u * gplane + gidx] = accum[2u * gplane + gidx] + w * src[2u * stile + sidx];
+  accum[0u * gplane + gidx] = accum[0u * gplane + gidx] + w * src[sbase + 0u * stile + sidx];
+  accum[1u * gplane + gidx] = accum[1u * gplane + gidx] + w * src[sbase + 1u * stile + sidx];
+  accum[2u * gplane + gidx] = accum[2u * gplane + gidx] + w * src[sbase + 2u * stile + sidx];
   weight[gidx] = weight[gidx] + w;
 }
 `;
 
 const RESOLVE = /* wgsl */ `
-struct P { imgW:u32, imgH:u32, srgb:u32, hdr:u32 };
+struct P { imgW:u32, imgH:u32, srgb:u32, hdr:u32, flipY:u32, _p0:u32, _p1:u32, _p2:u32 };
 @group(0) @binding(0) var<storage, read> accum: array<f32>;
 @group(0) @binding(1) var<storage, read> weight: array<f32>;
 @group(0) @binding(2) var<storage, read_write> dst: array<u32>;
@@ -120,40 +129,47 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   var rgb = vec3<f32>(accum[0u*gplane+idx], accum[1u*gplane+idx], accum[2u*gplane+idx]) / w;
   if (p.srgb == 1u) { rgb = linearToSrgb(rgb); }
   if (p.hdr == 0u) { rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)); }
-  dst[idx] = pack4x8unorm(vec4<f32>(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));
+  let oy = select(gid.y, p.imgH - 1u - gid.y, p.flipY == 1u);
+  dst[oy * p.imgW + gid.x] = pack4x8unorm(vec4<f32>(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0));
 }
 `;
 
 export interface AccumParams {
   imgW: number; imgH: number; startX: number; startY: number; curW: number; curH: number;
   tileX: number; tileY: number; tilesX: number; tilesY: number; tile: number; overlap: number;
+  batchIdx: number;
 }
 
 export class GpuImageOps {
   private extractPipe: GPUComputePipeline;
   private accumPipe: GPUComputePipeline;
   private resolvePipe: GPUComputePipeline;
-  private extractParams: GPUBuffer; // 32B
-  private accumParams: GPUBuffer; // 64B
-  private resolveParams: GPUBuffer; // 16B
+  private extractParams: GPUBuffer; // 32B uniform (common)
+  private extractOffsets: GPUBuffer; // maxBatch * 8B storage (per-slot startX/startY)
+  private accumParams: GPUBuffer[]; // one 64B uniform per batch slot
+  private resolveParams: GPUBuffer; // 32B
 
-  constructor(private device: GPUDevice) {
+  constructor(private device: GPUDevice, readonly maxBatch: number) {
     const mk = (code: string) =>
       device.createComputePipeline({
         layout: 'auto',
         compute: { module: device.createShaderModule({ code }), entryPoint: 'main' },
       });
-    this.extractPipe = mk(EXTRACT_TILE);
+    this.extractPipe = mk(EXTRACT_TILES);
     this.accumPipe = mk(ACCUMULATE_TILE);
     this.resolvePipe = mk(RESOLVE);
     const u = (size: number) =>
       device.createBuffer({ size, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.extractParams = u(32);
-    this.accumParams = u(64);
-    this.resolveParams = u(16);
+    this.extractOffsets = device.createBuffer({
+      size: Math.max(1, maxBatch) * 8,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    this.accumParams = Array.from({ length: Math.max(1, maxBatch) }, () => u(64));
+    this.resolveParams = u(32);
   }
 
-  private run(enc: GPUCommandEncoder, pipe: GPUComputePipeline, buffers: GPUBuffer[], dx: number, dy: number) {
+  private run(enc: GPUCommandEncoder, pipe: GPUComputePipeline, buffers: GPUBuffer[], dx: number, dy: number, dz = 1) {
     const bind = this.device.createBindGroup({
       layout: pipe.getBindGroupLayout(0),
       entries: buffers.map((buffer, i) => ({ binding: i, resource: { buffer } })),
@@ -161,38 +177,48 @@ export class GpuImageOps {
     const pass = enc.beginComputePass();
     pass.setPipeline(pipe);
     pass.setBindGroup(0, bind);
-    pass.dispatchWorkgroups(Math.ceil(dx / 8), Math.ceil(dy / 8));
+    pass.dispatchWorkgroups(Math.ceil(dx / 8), Math.ceil(dy / 8), dz);
     pass.end();
   }
 
-  encodeExtractTile(
+  /** Extract `count` tiles (offsets = count pairs of startX,startY) into dst[B,C,t,t] in one dispatch. */
+  encodeExtractTiles(
     enc: GPUCommandEncoder,
     color: GPUBuffer, albedo: GPUBuffer, normal: GPUBuffer, dst: GPUBuffer,
-    imgW: number, imgH: number, startX: number, startY: number, tile: number,
-    channels: number, srgb: boolean,
+    imgW: number, imgH: number, tile: number, channels: number, srgb: boolean,
+    offsets: Uint32Array, count: number,
   ) {
     this.device.queue.writeBuffer(this.extractParams, 0,
-      new Uint32Array([imgW, imgH, startX, startY, tile, channels, srgb ? 1 : 0, 0]));
-    this.run(enc, this.extractPipe, [color, albedo, normal, dst, this.extractParams], tile, tile);
+      new Uint32Array([imgW, imgH, tile, channels, srgb ? 1 : 0, count, 0, 0]));
+    this.device.queue.writeBuffer(this.extractOffsets, 0, offsets, 0, count * 2);
+    this.run(enc, this.extractPipe,
+      [color, albedo, normal, dst, this.extractParams, this.extractOffsets], tile, tile, count);
   }
 
-  encodeAccumulateTile(enc: GPUCommandEncoder, outNCHW: GPUBuffer, accum: GPUBuffer, weight: GPUBuffer, p: AccumParams) {
+  /**
+   * Blend one batch-slot's output tile into accum/weight. Each call encodes its
+   * own compute pass (overlapping tiles RMW the same texels; pass boundaries
+   * order them). `slot` selects a dedicated uniform buffer so a whole batch of
+   * accumulates can be encoded before a single submit.
+   */
+  encodeAccumulateTile(enc: GPUCommandEncoder, slot: number, outNCHW: GPUBuffer, accum: GPUBuffer, weight: GPUBuffer, p: AccumParams) {
     const ab = new ArrayBuffer(64);
     new Uint32Array(ab, 0, 12).set([
       p.imgW, p.imgH, p.startX, p.startY, p.curW, p.curH,
-      p.tileX, p.tileY, p.tilesX, p.tilesY, p.tile, 0,
+      p.tileX, p.tileY, p.tilesX, p.tilesY, p.tile, p.batchIdx,
     ]);
     new Float32Array(ab, 48, 1)[0] = p.overlap;
-    this.device.queue.writeBuffer(this.accumParams, 0, ab);
-    this.run(enc, this.accumPipe, [outNCHW, accum, weight, this.accumParams], p.curW, p.curH);
+    const params = this.accumParams[slot];
+    this.device.queue.writeBuffer(params, 0, ab);
+    this.run(enc, this.accumPipe, [outNCHW, accum, weight, params], p.curW, p.curH);
   }
 
   encodeResolve(
     enc: GPUCommandEncoder, accum: GPUBuffer, weight: GPUBuffer, dst: GPUBuffer,
-    imgW: number, imgH: number, srgb: boolean, hdr: boolean,
+    imgW: number, imgH: number, srgb: boolean, hdr: boolean, flipY = false,
   ) {
     this.device.queue.writeBuffer(this.resolveParams, 0,
-      new Uint32Array([imgW, imgH, srgb ? 1 : 0, hdr ? 1 : 0]));
+      new Uint32Array([imgW, imgH, srgb ? 1 : 0, hdr ? 1 : 0, flipY ? 1 : 0, 0, 0, 0]));
     this.run(enc, this.resolvePipe, [accum, weight, dst, this.resolveParams], imgW, imgH);
   }
 }

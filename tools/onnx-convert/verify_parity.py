@@ -108,7 +108,23 @@ def main():
     print(f"max abs diff: {diff.max():.3e}   mean abs diff: {diff.mean():.3e}")
     ok = np.allclose(ref, got, atol=1e-4, rtol=1e-4)
     print("PARITY OK" if ok else "PARITY FAIL")
-    sys.exit(0 if ok else 1)
+
+    # Dynamic-dims export: run a batch of 2 through [batch, C, height, width]
+    # and check each item matches its independent reference (validates that
+    # batching through conv/pool/resize/concat keeps items independent).
+    dyn_path = "/tmp/parity_dynamic.onnx"
+    convert(tza, dyn_path, "height", "width", fp16=False, final_activation="relu6")
+    inp2 = rng.random((1, in_ch, size, size), dtype=np.float32)
+    batch = np.concatenate([inp, inp2], axis=0)
+    sess_d = ort.InferenceSession(dyn_path, providers=["CPUExecutionProvider"])
+    got_b = sess_d.run(["output"], {"input": batch})[0]
+    ref2 = ref_fn(weights, inp2)
+    d0 = np.abs(ref - got_b[0:1]).max()
+    d1 = np.abs(ref2 - got_b[1:2]).max()
+    ok_dyn = d0 < 1e-4 and d1 < 1e-4
+    print(f"dynamic batch=2 max abs diff: item0 {d0:.3e}  item1 {d1:.3e}")
+    print("DYNAMIC PARITY OK" if ok_dyn else "DYNAMIC PARITY FAIL")
+    sys.exit(0 if (ok and ok_dyn) else 1)
 
 
 if __name__ == "__main__":

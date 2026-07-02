@@ -4,14 +4,19 @@
 // does pre/post + tiling in WGSL (GpuImageOps), and keeps everything on the GPU
 // except the final pixel readback.
 //
-// Ported and generalized from examples/webgpu-ort-smoke (browser-verified).
+// Tiles run through the model in BATCHES: the ONNX models export with named free
+// dims [batch, C, height, width], pinned per session via freeDimensionOverrides.
+// Each batch is one extract dispatch -> one session.run -> one submit of per-tile
+// accumulate passes, so the number of JS/GPU sync points per image is
+// ceil(tiles / batch) instead of tiles.
 import * as ort from 'onnxruntime-web/webgpu';
 import { GpuImageOps } from './wgsl';
 
 export interface EngineOptions {
   channels: number; // 3 | 6 | 9 — must match the model
-  tile?: number; // model's fixed square size (default 256)
+  tile?: number; // square tile size (default 256; any multiple of 16)
   overlap?: number; // tile overlap (default 32)
+  batch?: number; // tiles per session.run (default 8)
   wasmPaths?: string;
   /**
    * Opt-in WebGPU graph capture. Measured ~0 gain here (the tile loop is
@@ -28,6 +33,7 @@ export interface DenoiseOptions {
   normal?: Uint8ClampedArray; // required when channels >= 9
   srgb?: boolean; // input is sRGB -> convert to linear before the model, back after
   hdr?: boolean; // skip the [0,1] output clamp
+  flipY?: boolean; // flip the output vertically (in the resolve kernel, free)
   onProgress?: (p: number) => void;
 }
 
@@ -36,11 +42,16 @@ export interface DenoiseStats {
   width: number;
   height: number;
   tiles: number;
+  batches: number;
   uploadMs: number; // input writeBuffer + accum/weight clear
   encodeMs: number; // WGSL extract/accumulate encode+submit (CPU side)
   runMs: number; // sum of awaited session.run() calls
   resolveMs: number; // resolve pass + readback map
   totalMs: number;
+}
+
+interface TileSpec {
+  startX: number; startY: number; curW: number; curH: number; tx: number; ty: number;
 }
 
 export class DenoiseEngine {
@@ -51,6 +62,8 @@ export class DenoiseEngine {
   channels = 3;
   readonly tile: number;
   readonly overlap: number;
+  /** Tiles per session.run — 1 when the model has static dims (legacy export). */
+  batch: number;
   /** Stage timings from the most recent denoise() call. */
   lastStats?: DenoiseStats;
   /** True when the session runs with WebGPU graph capture enabled. */
@@ -77,6 +90,7 @@ export class DenoiseEngine {
     this.channels = opts.channels;
     this.tile = opts.tile ?? 256;
     this.overlap = opts.overlap ?? 32;
+    this.batch = Math.max(1, opts.batch ?? 8);
   }
 
   static async create(modelBytes: Uint8Array, opts: EngineOptions): Promise<DenoiseEngine> {
@@ -89,6 +103,10 @@ export class DenoiseEngine {
       executionProviders: ['webgpu'],
       preferredOutputLocation: 'gpu-buffer',
       graphOptimizationLevel: 'all',
+      // Pin the model's named free dims for this session. Models are exported
+      // dynamic ([batch, C, height, width]); with the dims pinned every shape
+      // is static from the EP's point of view.
+      freeDimensionOverrides: { batch: e.batch, height: e.tile, width: e.tile },
     };
     // Graph capture records the U-Net's GPU commands once and replays them on
     // later runs, skipping per-run graph walking/dispatch. It requires static
@@ -108,27 +126,38 @@ export class DenoiseEngine {
         console.warn('Denoiser: graph capture unavailable, falling back', err);
       }
     }
-    if (!e.session) e.session = await ort.InferenceSession.create(modelBytes, sessionOpts);
+    if (!e.session) {
+      try {
+        e.session = await ort.InferenceSession.create(modelBytes, sessionOpts);
+      } catch (err) {
+        // Legacy static-dim model ([1, C, 256, 256]): no free dims to pin.
+        console.warn('Denoiser: model has static dims, batching disabled', err);
+        e.batch = 1;
+        const { freeDimensionOverrides: _drop, ...plain } = sessionOpts;
+        e.session = await ort.InferenceSession.create(modelBytes, plain);
+      }
+    }
     e.inputName = e.session.inputNames[0];
     e.outputName = e.session.outputNames[0];
     e.device = (ort.env.webgpu as unknown as { device: GPUDevice }).device;
     if (!e.device) throw new Error('Denoiser: ORT did not expose a WebGPU device');
 
-    e.ops = new GpuImageOps(e.device);
+    e.ops = new GpuImageOps(e.device, e.batch);
     const t = e.tile;
+    const B = e.batch;
     e.nchwInput = e.device.createBuffer({
-      size: e.channels * t * t * 4,
+      size: B * e.channels * t * t * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     e.outNCHW = e.device.createBuffer({
-      size: 3 * t * t * 4,
+      size: B * 3 * t * t * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
     e.inputTensor = ort.Tensor.fromGpuBuffer(e.nchwInput, {
-      dataType: 'float32', dims: [1, e.channels, t, t],
+      dataType: 'float32', dims: [B, e.channels, t, t],
     });
     e.outputTensor = ort.Tensor.fromGpuBuffer(e.outNCHW, {
-      dataType: 'float32', dims: [1, 3, t, t],
+      dataType: 'float32', dims: [B, 3, t, t],
     });
     return e;
   }
@@ -163,7 +192,21 @@ export class DenoiseEngine {
     const stride = TILE - this.overlap;
     const tilesX = Math.ceil(w / stride);
     const tilesY = Math.ceil(h / stride);
-    const total = tilesX * tilesY;
+
+    const tiles: TileSpec[] = [];
+    for (let ty = 0; ty < tilesY; ty++) {
+      for (let tx = 0; tx < tilesX; tx++) {
+        const startX = tx * stride;
+        const startY = ty * stride;
+        tiles.push({
+          startX, startY, tx, ty,
+          curW: Math.min(TILE, w - startX),
+          curH: Math.min(TILE, h - startY),
+        });
+      }
+    }
+    const total = tiles.length;
+    const batches = Math.ceil(total / this.batch);
 
     const tStart = performance.now();
     d.queue.writeBuffer(this.color!, 0, color);
@@ -178,45 +221,52 @@ export class DenoiseEngine {
 
     const albedoBuf = this.albedo ?? this.color!;
     const normalBuf = this.normal ?? this.color!;
+    const offsets = new Uint32Array(this.batch * 2);
     let encodeMs = 0;
     let runMs = 0;
     let done = 0;
-    for (let ty = 0; ty < tilesY; ty++) {
-      for (let tx = 0; tx < tilesX; tx++) {
-        const startX = tx * stride;
-        const startY = ty * stride;
-        const curW = Math.min(TILE, w - startX);
-        const curH = Math.min(TILE, h - startY);
+    for (let b0 = 0; b0 < total; b0 += this.batch) {
+      const batch = tiles.slice(b0, b0 + this.batch);
 
-        let t0 = performance.now();
-        const e1 = d.createCommandEncoder();
-        this.ops.encodeExtractTile(
-          e1, this.color!, albedoBuf, normalBuf, this.nchwInput!,
-          w, h, startX, startY, TILE, this.channels, !!opts.srgb);
-        d.queue.submit([e1.finish()]);
-        let t1 = performance.now();
-        encodeMs += t1 - t0;
-
-        await this.session.run(
-          { [this.inputName]: this.inputTensor },
-          { [this.outputName]: this.outputTensor });
-        t0 = performance.now();
-        runMs += t0 - t1;
-
-        const e2 = d.createCommandEncoder();
-        this.ops.encodeAccumulateTile(e2, this.outNCHW!, this.accum!, this.weight!, {
-          imgW: w, imgH: h, startX, startY, curW, curH,
-          tileX: tx, tileY: ty, tilesX, tilesY, tile: TILE, overlap: this.overlap,
-        });
-        d.queue.submit([e2.finish()]);
-        encodeMs += performance.now() - t0;
-        opts.onProgress?.(++done / total);
+      let t0 = performance.now();
+      for (let i = 0; i < batch.length; i++) {
+        offsets[i * 2] = batch[i].startX;
+        offsets[i * 2 + 1] = batch[i].startY;
       }
+      const e1 = d.createCommandEncoder();
+      this.ops.encodeExtractTiles(
+        e1, this.color!, albedoBuf, normalBuf, this.nchwInput!,
+        w, h, TILE, this.channels, !!opts.srgb, offsets, batch.length);
+      d.queue.submit([e1.finish()]);
+      const t1 = performance.now();
+      encodeMs += t1 - t0;
+
+      // Unused slots of a short final batch still run through the model with
+      // stale (valid float) contents; their outputs are simply never blended.
+      await this.session.run(
+        { [this.inputName]: this.inputTensor },
+        { [this.outputName]: this.outputTensor });
+      t0 = performance.now();
+      runMs += t0 - t1;
+
+      const e2 = d.createCommandEncoder();
+      batch.forEach((tl, i) => {
+        this.ops.encodeAccumulateTile(e2, i, this.outNCHW!, this.accum!, this.weight!, {
+          imgW: w, imgH: h, startX: tl.startX, startY: tl.startY, curW: tl.curW, curH: tl.curH,
+          tileX: tl.tx, tileY: tl.ty, tilesX, tilesY, tile: TILE, overlap: this.overlap,
+          batchIdx: i,
+        });
+      });
+      d.queue.submit([e2.finish()]);
+      encodeMs += performance.now() - t0;
+      done += batch.length;
+      opts.onProgress?.(done / total);
     }
 
     const tTiles = performance.now();
     const e3 = d.createCommandEncoder();
-    this.ops.encodeResolve(e3, this.accum!, this.weight!, this.outPixels!, w, h, !!opts.srgb, !!opts.hdr);
+    this.ops.encodeResolve(
+      e3, this.accum!, this.weight!, this.outPixels!, w, h, !!opts.srgb, !!opts.hdr, !!opts.flipY);
     e3.copyBufferToBuffer(this.outPixels!, 0, this.readback!, 0, w * h * 4);
     d.queue.submit([e3.finish()]);
 
@@ -225,7 +275,7 @@ export class DenoiseEngine {
     this.readback!.unmap();
     const tEnd = performance.now();
     this.lastStats = {
-      width: w, height: h, tiles: total,
+      width: w, height: h, tiles: total, batches,
       uploadMs: tUpload - tStart,
       encodeMs, runMs,
       resolveMs: tEnd - tTiles,

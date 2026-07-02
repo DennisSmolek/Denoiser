@@ -36,4 +36,6 @@ export interface DenoiserOptions {
   precision?: 'fp32' | 'fp16';
   /** Opt-in ORT WebGPU graph capture (unstable in onnxruntime-web 1.27 at high tile counts). */
   graphCapture?: boolean;
+  /** Tiles per model run (default 8). Higher = fewer sync points, more GPU memory. */
+  batch?: number;
 }

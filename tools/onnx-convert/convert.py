@@ -18,8 +18,11 @@ Conv = 3x3 same-pad + bias, activation relu6 (Clip[0,6]). Pool = 2x2/stride2
 max pool. Upsample = nearest 2x (Resize, asymmetric/floor to match TF
 upSampling2d pixel duplication). Concat is along the channel axis (NCHW, axis=1).
 
-Layout is NCHW with a fixed input shape (default 256x256) so the WebGPU EP can
-use graph capture. All shapes/channel counts are inferred from the weights.
+Layout is NCHW. By default the input shape is fully dynamic with NAMED free
+dims [batch, C, height, width] so the runtime pins them per session via
+freeDimensionOverrides (batching, any /16-aligned tile size, whole-frame runs).
+--size N emits the old fixed [1, C, N, N] shape instead. All channel counts
+are inferred from the weights.
 """
 from __future__ import annotations
 
@@ -129,9 +132,17 @@ class GraphBuilder:
         self.conv("dec_conv1c", x, activation=(self.final_activation == "relu6"))
         return "dec_conv1c"
 
-    def build(self, in_channels: int, height: int, width: int) -> onnx.ModelProto:
+    def build(self, in_channels: int, height, width) -> onnx.ModelProto:
+        """height/width may be ints (static) or dim_param names (dynamic).
+
+        Dynamic models use named free dims ("batch"/"height"/"width") so the
+        runtime can pin them per session via freeDimensionOverrides — one
+        artifact serves any tile size and batch count (H, W must be multiples
+        of 16 for the four pool/upsample round-trips to align).
+        """
         elem = TensorProto.FLOAT16 if self.fp16 else TensorProto.FLOAT
-        inp = helper.make_tensor_value_info("input", elem, [1, in_channels, height, width])
+        batch = 1 if isinstance(height, int) else "batch"
+        inp = helper.make_tensor_value_info("input", elem, [batch, in_channels, height, width])
 
         if "enc_conv1a.weight" in self.w:
             out_conv = self._build_large()   # UNetLarge topology
@@ -139,7 +150,7 @@ class GraphBuilder:
             out_conv = self._build_standard()  # mirrors unet.ts
 
         out_channels = self.w[f"{out_conv}.weight"].shape[0]
-        out = helper.make_tensor_value_info("output", elem, [1, out_channels, height, width])
+        out = helper.make_tensor_value_info("output", elem, [batch, out_channels, height, width])
 
         # rename last node's output to "output"
         self.nodes[-1].output[0] = "output"
@@ -151,7 +162,7 @@ class GraphBuilder:
         return model
 
 
-def convert(tza_path: str, out_path: str, height: int, width: int,
+def convert(tza_path: str, out_path: str, height, width,
             fp16: bool, final_activation: str) -> onnx.ModelProto:
     with open(tza_path, "rb") as f:
         weights = parse_tza(f.read())
@@ -167,7 +178,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Convert OIDN TZA weights to ONNX U-Nets")
     ap.add_argument("inputs", nargs="+", help="TZA file(s)")
     ap.add_argument("-o", "--outdir", default="packages/denoiser/models")
-    ap.add_argument("--size", type=int, default=256, help="fixed tile size (square)")
+    ap.add_argument("--size", type=int, default=0,
+                    help="fixed square tile size; 0 (default) = dynamic batch/height/width free dims")
     ap.add_argument("--fp16", action="store_true")
     ap.add_argument("--final-activation", choices=["relu6", "none"], default="relu6",
                     help="dec_conv0 activation; relu6 matches current unet.ts")
@@ -178,7 +190,8 @@ def main() -> None:
         base = os.path.splitext(os.path.basename(tza))[0]
         suffix = ".fp16.onnx" if args.fp16 else ".onnx"
         out = os.path.join(args.outdir, base + suffix)
-        model = convert(tza, out, args.size, args.size, args.fp16, args.final_activation)
+        hw = (args.size, args.size) if args.size else ("height", "width")
+        model = convert(tza, out, hw[0], hw[1], args.fp16, args.final_activation)
         topo = "large" if any("enc_conv1a" in n for n in (init.name for init in model.graph.initializer)) else "std"
         size_mb = os.path.getsize(out) / 1e6
         print(f"{base:28s} [{topo:5s}] -> {out}  ({size_mb:.1f} MB)")
