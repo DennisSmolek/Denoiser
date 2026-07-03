@@ -5,6 +5,7 @@
 // `denoiser` package. Aux (albedo/normal) G-buffer + zero-copy GPU IO are the next
 // increments; this validates the shared-device pipeline end to end.
 import * as THREE from 'three/webgpu';
+import { mrt, diffuseColor, normalView } from 'three/tsl';
 import { WebGPUPathTracer } from 'three-gpu-pathtracer/webgpu';
 import { GradientEquirectTexture } from 'three-gpu-pathtracer/src/textures/GradientEquirectTexture.js';
 import { Denoiser } from 'denoiser';
@@ -154,6 +155,26 @@ async function main() {
       .forEach((b) => { b.disabled = liveCheckbox.checked; });
   });
 
+  // G-buffer aux (TODO 2c): rasterize the SAME scene once into an MRT target —
+  // albedo = material base color (unlit), normal = view-space normal [-1,1].
+  // Rasterized aux is noise-free, so the cleanAux (calb_cnrm) models apply.
+  const auxCheckbox = document.querySelector<HTMLInputElement>('#aux')!;
+  const gbuffer = new THREE.RenderTarget(512, 512, { count: 2, type: THREE.HalfFloatType });
+  gbuffer.textures[0].name = 'albedo';
+  gbuffer.textures[1].name = 'normal';
+  let gbufferRendered = false;
+  function renderGBuffer() {
+    renderer.setMRT(mrt({ albedo: diffuseColor, normal: normalView }));
+    renderer.setRenderTarget(gbuffer);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.setMRT(null);
+    gbufferRendered = true;
+  }
+  const backendGet = (o: unknown) => (renderer.backend as unknown as {
+    get: (o: unknown) => { texture?: GPUTexture };
+  }).get(o)?.texture;
+
   let denoisingBusy = false;
   let lastDenoisedSample = -1;
   let liveMs = 0;
@@ -161,6 +182,16 @@ async function main() {
   async function runLiveDenoise() {
     const tracerTex = getTracerTexture();
     if (!tracerTex || !denoisedGpuTex) throw new Error('live denoise: textures unavailable');
+    if (auxCheckbox.checked) {
+      if (!gbufferRendered) renderGBuffer();
+      const albedoTex = backendGet(gbuffer.textures[0]);
+      const normalTex = backendGet(gbuffer.textures[1]);
+      if (!albedoTex || !normalTex) throw new Error('aux: G-buffer textures unavailable');
+      denoiser.setInputTexture('albedo', albedoTex);
+      denoiser.setInputTexture('normal', normalTex);
+    } else if (denoiser.props.useAlbedo) {
+      denoiser.resetInputs(); // drop aux -> back to the color-only model
+    }
     denoiser.hdr = true; // linear-HDR float input -> hdr model
     denoiser.srgb = false;
     // keep the bottom-up orientation end-to-end; three's plane UVs display it upright
