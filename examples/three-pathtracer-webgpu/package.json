@@ -5,9 +5,9 @@
   "type": "module",
   "description": "three r185 WebGPUPathTracer + WebGPU/ONNX denoiser on a shared GPUDevice.",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5173",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview --port 5173"
   },
   "dependencies": {
     "denoiser": "workspace:*",

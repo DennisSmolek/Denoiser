@@ -5,9 +5,9 @@
   "type": "module",
   "description": "Minimal WebGPU smoke test: run a converted OIDN ONNX U-Net through onnxruntime-web (WebGPU EP) with zero-copy GPU-buffer IO.",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5176",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview --port 5176"
   },
   "dependencies": {
     "onnxruntime-web": "^1.27.0"
