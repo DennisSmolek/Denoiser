@@ -66,3 +66,23 @@ PSNR(native_color, native_aux) = 47.1 dB (both clean; aux slightly sharper edges
 Takeaways: we beat native CPU already; native Metal proves this hardware runs
 the base 9ch U-Net in ~25ms → ~9x kernel-efficiency headroom over ORT-web at
 equal model size — the measured ceiling for docs/wgsl-engine-proposal.md.
+
+### Fairness check (`-t half|float`, `-q high|balanced|fast`, Metal)
+
+| network | native Metal | ours (WebGPU/ORT fp16) | gap |
+|---|---|---|---|
+| base (high/balanced) | 24.2 ms | ~224 ms | ~9x |
+| fast (small) | 14.0 ms | ~104 ms | ~7.4x |
+
+`-t half` vs `-t float` is IDENTICAL on Metal (24.2 vs 24.3) — that flag sets
+buffer IO type; the MPSGraph backend runs its own (fp16-class, matrix-unit)
+precision internally either way. So the native run is the optimized ceiling,
+not a generic path. Native msec excludes host IO (~0.8ms, reported separately);
+our numbers include extract/resolve/readback.
+
+Gap decomposition (measured, not vibes): browser overhead is NOT the story —
+after batching/whole-frame our dispatch cost is ~1-3ms; the 224ms is kernel
+execution. Metal's edge = MPSGraph fused kernels + Apple simdgroup_matrix
+(hardware MMA), the latter unreachable from WGSL until WebGPU's subgroup-matrix
+proposal ships. Realistic custom-WGSL capture: ~2-3x (base -> ~80-120ms);
+the remaining ~3-4x is hardware access, not code quality.
