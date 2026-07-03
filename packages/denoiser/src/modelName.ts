@@ -1,9 +1,20 @@
-import type { DenoiserProps } from './types';
+import type { Quality } from './types';
 
-// Resolve the OIDN model name + input channel count from the denoiser props.
+export interface ModelSelector {
+  filterType: string; // 'rt'
+  quality: Quality;
+  hdr: boolean;
+  useColor: boolean;
+  useAlbedo: boolean;
+  useNormal: boolean;
+  cleanAux: boolean;
+  dirtyAux: boolean;
+}
+
+// Resolve the OIDN model name + input channel count from the selector.
 // Port of the old denoiserUtils.determineTensorMap — the resulting name maps
 // directly to a converted ONNX file (e.g. rt_ldr_alb_nrm_small.onnx).
-export function determineModel(props: DenoiserProps): { name: string; channels: number } {
+export function determineModel(props: ModelSelector): { name: string; channels: number } {
   let name = props.filterType; // 'rt'
   name += props.hdr ? '_hdr' : '_ldr';
 

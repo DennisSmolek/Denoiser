@@ -84,12 +84,8 @@ async function main() {
   patchWebGPUForMaxLimits();
 
   // 1) Denoiser first, so ORT owns the GPUDevice we then share with three.js.
-  const denoiser = new Denoiser();
-  denoiser.weightsUrl = '/models';
-  // WebGPU render targets read bottom-up; flip so the denoised output is right-side up.
-  denoiser.flipOutputY = true;
-  await denoiser.build();
-  const device = denoiser.device!;
+  const denoiser = await Denoiser.create({ weightsUrl: '/models' });
+  const device = denoiser.device;
   log(`denoiser ready; sharing GPUDevice with three.js: ${device ? 'yes' : 'no'}`);
   device.lost.then((info) => log(`DEVICE LOST: ${info.reason} — ${info.message}`));
   device.addEventListener('uncapturederror', (e) =>
@@ -285,39 +281,31 @@ async function main() {
     const tracerTex = getTracerTexture();
     if (!tracerTex || !denoisedGpuTex) throw new Error('live denoise: textures unavailable');
     if (tracerTex.width !== RES) return; // tracer target not ready yet
+    let albedo: GPUTexture | undefined;
+    let normal: GPUTexture | undefined;
     if (auxCheckbox.checked) {
       if (!gbufferRendered) renderGBuffer();
-      const albedoTex = backendGet(gbuffer.textures[0]);
-      const normalTex = backendGet(gbuffer.textures[1]);
-      if (!albedoTex || !normalTex) throw new Error('aux: G-buffer textures unavailable');
-      denoiser.setInputTexture('albedo', albedoTex);
-      denoiser.setInputTexture('normal', normalTex);
-    } else if (denoiser.props.useAlbedo) {
-      denoiser.resetInputs(); // drop aux -> back to the color-only model
+      albedo = backendGet(gbuffer.textures[0]);
+      normal = backendGet(gbuffer.textures[1]);
+      if (!albedo || !normal) throw new Error('aux: G-buffer textures unavailable');
     }
-    denoiser.hdr = true; // linear-HDR float input -> hdr model
-    denoiser.srgb = false;
-    denoiser.flipInputY = true; // bottom-up tracer output -> top-down
-    denoiser.auxFlipInputY = false; // the raster G-buffer is already top-down
-    denoiser.flipOutputY = false;
-    // Both modes: display-encoded output (ACES+sRGB in the resolve kernel),
-    // top-down (flipInputY normalizes the bottom-up render target on read).
-    denoiser.tonemapOutput = true;
-    denoiser.outputMode = 'gpuTexture';
-    denoiser.setInputTexture('color', tracerTex);
-    if (fsrMode) {
-      // resolve into the three-owned texture that feeds the fsr1() node
-      denoiser.setOutputTexture(denoisedGpuTex);
-      const res = await denoiser.execute();
-      if (!res) return; // aborted mid-flight (camera moved)
-      renderFsr?.(); // EASU/RCAS 2x -> compare overlay
-    } else {
-      // engine-owned rgba8 texture, blitted straight onto the compare overlay
-      denoiser.setOutputTexture(undefined);
-      const outTex = (await denoiser.execute()) as GPUTexture | undefined;
-      if (!outTex) return; // aborted mid-flight (camera moved)
-      blitToOverlay(outTex);
-    }
+    // stateless per-call config (v2): linear-HDR tracer input, display-encoded
+    // (ACES+sRGB) output, top-down (the tracer target is bottom-up, the raster
+    // G-buffer already top-down).
+    const outTex = await denoiser.denoiseTextures({
+      color: tracerTex,
+      albedo, normal,
+      hdr: true,
+      inputFlipY: true,
+      auxInputFlipY: false,
+      transfer: 'aces-srgb',
+      // FSR mode resolves into the three-owned texture feeding the fsr1() node;
+      // otherwise the engine-owned rgba8 result is blitted onto the overlay.
+      output: fsrMode ? denoisedGpuTex : undefined,
+    });
+    if (!outTex) return; // aborted mid-flight (camera moved)
+    if (fsrMode) renderFsr?.(); // EASU/RCAS 2x -> compare overlay
+    else blitToOverlay(outTex);
     overlayCanvas.style.opacity = '1'; // fresh result for the current view
   }
 
@@ -397,14 +385,13 @@ async function main() {
     }
     const img = new ImageData(rgba, w, h);
 
-    denoiser.hdr = false; // tonemapped LDR input -> ldr model
-    denoiser.srgb = false;
-    denoiser.flipOutputY = true; // render target rows arrive bottom-up
-    denoiser.flipInputY = false;
-    denoiser.tonemapOutput = false;
-    denoiser.outputMode = 'imgData';
-    denoiser.setCanvas(outCanvas);
-    await denoiser.execute(img);
+    // tonemapped+sRGB LDR bytes -> the ldr model; flip because the readback
+    // rows arrive bottom-up
+    const result = await denoiser.denoise(img, { flipY: true });
+    if (result) {
+      outCanvas.width = w; outCanvas.height = h;
+      outCanvas.getContext('2d')!.putImageData(result, 0, 0);
+    }
     log(`CPU path: denoised in ${(performance.now() - t0).toFixed(1)} ms (${w}×${h}, incl. readback+tonemap)`);
   });
 
@@ -419,15 +406,13 @@ async function main() {
     if (!gpuTexture) { log('ERROR: could not resolve the render target’s GPUTexture'); return; }
 
     const t0 = performance.now();
-    denoiser.hdr = true; // real linear-HDR floats -> hdr model
-    denoiser.srgb = false;
-    denoiser.flipInputY = true; // WebGPU render targets read bottom-up
-    denoiser.flipOutputY = false;
-    denoiser.tonemapOutput = true; // ACES + sRGB in the resolve kernel for display
-    denoiser.outputMode = 'gpuTexture';
-    denoiser.setOutputTexture(undefined); // engine-owned texture (we blit it below)
-    denoiser.setInputTexture('color', gpuTexture);
-    const outTex = (await denoiser.execute()) as GPUTexture;
+    const outTex = await denoiser.denoiseTextures({
+      color: gpuTexture,
+      hdr: true, // real linear-HDR floats -> hdr model
+      inputFlipY: true, // WebGPU render targets read bottom-up
+      transfer: 'aces-srgb', // display-ready
+    });
+    if (!outTex) return;
     blitToOverlay(outTex);
     log(`GPU path: denoised in ${(performance.now() - t0).toFixed(1)} ms (${outTex.width}×${outTex.height}, zero-copy)`);
   });

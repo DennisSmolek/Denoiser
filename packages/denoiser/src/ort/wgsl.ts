@@ -169,8 +169,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   var col = vec3<f32>(0.0);
   if (inside) {
+    // float texture inputs are linear by contract; p.srgb is output-side only
     col = textureLoad(color, coord, 0).xyz;
-    if (p.srgb == 1u) { col = srgbToLinear(col); }
     if (p.hdr == 1u) { col = pu_forward(max(col * exposure[0], vec3<f32>(0.0))); }
   }
   dst[base + 0u * plane + didx] = IOType(col.x);

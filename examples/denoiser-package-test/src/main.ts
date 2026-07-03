@@ -31,20 +31,17 @@ function makeNoisy(): ImageData {
 async function run(denoiser: Denoiser) {
   const noisy = makeNoisy();
   noisyCanvas.getContext('2d')!.putImageData(noisy, 0, 0);
-  log('executing denoiser.execute(noisy)...');
+  log('executing denoiser.denoise(noisy)...');
   const t0 = performance.now();
-  await denoiser.execute(noisy);
-  log(`done in ${(performance.now() - t0).toFixed(1)} ms (model: rt_ldr_small, tiled)`);
+  const out = await denoiser.denoise(noisy);
+  if (out) cleanCanvas.getContext('2d')!.putImageData(out, 0, 0);
+  log(`done in ${(performance.now() - t0).toFixed(1)} ms (model: rt_ldr_small)`);
 }
 
 async function main() {
   if (!('gpu' in navigator)) { log('ERROR: WebGPU not available.'); return; }
-  const denoiser = new Denoiser();
-  denoiser.debugging = true;
-  denoiser.weightsUrl = '/models'; // local dev models (see vite.config.ts)
-  denoiser.quality = 'fast';
-  denoiser.setCanvas(cleanCanvas);
-  log('Denoiser created. Running first execute (loads model + warms up)...');
+  log('creating Denoiser (loads model + device)...');
+  const denoiser = await Denoiser.create({ quality: 'fast', weightsUrl: '/models' });
   await run(denoiser);
   log(`shared GPUDevice exposed: ${denoiser.device ? 'yes' : 'no'}`);
   runBtn.disabled = false;

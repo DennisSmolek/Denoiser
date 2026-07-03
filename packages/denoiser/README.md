@@ -12,38 +12,37 @@ round-trip is the one you ask for. Feed it images or `GPUTexture`s; get back
 npm install denoiser onnxruntime-web
 ```
 
-## Quick start (image in, canvas out)
+## Quick start (image in, ImageData out)
 
 ```ts
 import { Denoiser } from 'denoiser';
 
-const denoiser = new Denoiser();
-denoiser.setCanvas(document.getElementById('output-canvas'));
-await denoiser.execute(noisyImageElement); // ImageData / img / canvas / bitmap
+const denoiser = await Denoiser.create();
+const clean = await denoiser.denoise(noisyImageElement); // ImageData
+canvas.getContext('2d').putImageData(clean, 0, 0);
 ```
 
 ## Zero-copy GPU pipeline (three.js / render targets)
 
 The integration path for renderers: **pathtracer → denoiser → render target**,
-no CPU pixels anywhere.
+no CPU pixels anywhere. Execution is stateless — everything about a run is in
+the call:
 
 ```ts
-const denoiser = new Denoiser();
-await denoiser.build();
+const denoiser = await Denoiser.create({ precision: 'fp16' });
 
 // ORT creates the GPUDevice — share it with three.js (see Device sharing below)
 const renderer = new THREE.WebGPURenderer({ device: denoiser.device });
 
-// input: your renderer's float, linear-HDR output texture
-denoiser.hdr = true;
-denoiser.setInputTexture('color', tracerGpuTexture);
-
-// output: a texture YOU own (e.g. a three.js StorageTexture's GPUTexture).
-// rgba16float = unclamped linear HDR out — your tonemapping stays in charge.
-// rgba8unorm = clamped display-ready (optionally tonemapOutput for ACES+sRGB).
-denoiser.setOutputTexture(threeStorageGpuTexture);
-await denoiser.execute();
-// ...render the storage texture like any other three.js texture
+const result = await denoiser.denoiseTextures({
+  color: tracerGpuTexture,     // float, linear HDR
+  albedo, normal,              // optional aux planes -> guided model auto-selected
+  hdr: true,                   // OIDN PU transfer + autoexposure applied
+  inputFlipY: true,            // render targets are bottom-up
+  output: threeStorageGpuTexture, // optional caller-owned target
+  transfer: 'linear',          // or 'srgb' | 'aces-srgb' (display-ready)
+});
+// ...render the texture like any other three.js texture
 ```
 
 At 512×512 this runs in ~14–20 ms warm on an M-series laptop — fast enough to
@@ -90,10 +89,11 @@ To share a device with three.js, build the denoiser FIRST and hand
 
 Two lifetime rules follow from ORT's ownership:
 
-1. **`denoiser.dispose()` can destroy the shared device.** When the last ORT
-   session is released, ORT destroys its device — three.js, canvas contexts,
-   and every resource on it die with it (`GPUDevice.lost` fires with reason
-   `'destroyed'`). Only call `dispose()` on full teardown.
+1. **`destroyDevice()` destroys the shared device.** When the last ORT session
+   is released, ORT destroys its device — three.js, canvas contexts, and every
+   resource on it die with it (`GPUDevice.lost`, reason `'destroyed'`).
+   `dispose()` is the safe between-workloads cleanup: it frees buffers and
+   extra sessions but retains one so the device survives.
 2. Model switches are safe: `Denoiser` overlaps the new engine's creation with
    the old one's disposal precisely so the session count never hits zero
    mid-swap. Don't "optimize" that ordering away.
@@ -103,23 +103,23 @@ the device gets the adapter's **max limits + features** — ORT alone requests a
 minimal device that can't hold whole-frame U-Net intermediates or a path
 tracer's pipelines.
 
-## API sketch
+## API sketch (v2 — stateless per call)
 
 | | |
 |---|---|
-| `new Denoiser(opts?)` | `precision: 'fp32'\|'fp16'`, `batch`, `wasmPaths`, `graphCapture` |
-| `execute(color?, albedo?, normal?)` | run; returns per `outputMode` (or `undefined` with listeners) |
-| `setInputImage / setInputData` | DOM images / raw RGBA8 |
-| `setInputTexture(name, gpuTexture)` | zero-copy float texture input |
-| `setOutputTexture(gpuTexture?)` | resolve into your texture (rgba8unorm / rgba16float, STORAGE_BINDING) |
-| `outputMode` | `'imgData'` (default) \| `'float32'` \| `'gpuTexture'` |
-| props | `quality: 'fast'\|'balanced'\|'high'`, `hdr`, `srgb`, `flipInputY`, `flipOutputY`, `tonemapOutput` |
-| events | `onExecute`, `onProgress`, `onBackendReady` |
-| info | `device`, `lastStats` (per-stage timings), `tileInfo` |
+| `await Denoiser.create(opts?)` | `precision`, `quality`, `weightsUrl`, `wasmPaths`, `maxRunPixels`, `batch`, `graphCapture` |
+| `denoise(imageLike, opts?)` | → `ImageData`; opts: `albedo`, `normal`, `srgb`, `flipY`, `onProgress` |
+| `denoiseToFloat(imageLike, opts?)` | → normalized `Float32Array` |
+| `denoiseTextures(opts)` | → `GPUTexture`; opts: `color`, `albedo`, `normal`, `hdr`, `inputScale`, `inputFlipY`, `auxInputFlipY`, `output`, `transfer`, `outputFlipY` |
+| `abort()` | drop the in-flight run's result |
+| `dispose()` | free buffers/extra sessions, KEEP the device |
+| `destroyDevice()` | full teardown (kills the shared device) |
+| `on('progress' \| 'executed', cb)` | events; returns an off() fn |
+| info | `device`, `stats` (per-stage timings), `quality` (mutable) |
 
-Orientation: WebGPU render targets read bottom-up. Either set `flipInputY`
-(normalize on read) or leave the pipeline bottom-up and let your renderer's UVs
-display it upright — don't set both.
+Orientation: WebGPU render targets read bottom-up — set `inputFlipY`. If your
+aux planes come from a raster pass their convention can differ from a
+compute-written color texture; `auxInputFlipY` handles that independently.
 
 `graphCapture` is opt-in and off by default: it measured no gain (the workload
 is GPU-bound) and onnxruntime-web 1.27 captured sessions crash after roughly

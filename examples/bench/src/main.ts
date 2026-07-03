@@ -112,33 +112,28 @@ async function benchScenario(w: number, h: number, label: string): Promise<Resul
   const quality = qualitySel.value as 'fast' | 'balanced';
   log(`--- ${label} (${precision}, ${quality}) ---`);
 
-  const denoiser = new Denoiser({
-    precision, batch: batchParam, graphCapture: captureParam, maxRunPixels: maxRunPixelsParam,
+  const tb = performance.now();
+  const denoiser = await Denoiser.create({
+    precision, quality, weightsUrl: '/models',
+    batch: batchParam, graphCapture: captureParam, maxRunPixels: maxRunPixelsParam,
   });
-  denoiser.weightsUrl = '/models';
-  denoiser.quality = quality;
+  const buildMs = performance.now() - tb;
 
   const noisy = makeNoisy(w, h);
   noisyCanvas.width = w; noisyCanvas.height = h;
   noisyCanvas.getContext('2d')!.putImageData(noisy, 0, 0);
 
-  const tb = performance.now();
-  denoiser.setInputData('color', noisy.data, w, h);
-  await denoiser.build();
-  const buildMs = performance.now() - tb;
-  log(`graph capture: ${(denoiser as unknown as { engine?: { graphCaptured?: boolean } })['engine']?.graphCaptured ?? 'n/a'}`);
-
   const tc = performance.now();
-  let out = (await denoiser.execute(noisy)) as ImageData;
+  let out = (await denoiser.denoise(noisy))!;
   const coldMs = performance.now() - tc;
 
   const warm: number[] = [];
   const stages = { uploadMs: [] as number[], encodeMs: [] as number[], runMs: [] as number[], resolveMs: [] as number[] };
   for (let i = 0; i < WARM_RUNS; i++) {
     const t0 = performance.now();
-    out = (await denoiser.execute(noisy)) as ImageData;
+    out = (await denoiser.denoise(noisy))!;
     warm.push(performance.now() - t0);
-    const s = denoiser.lastStats!;
+    const s = denoiser.stats!;
     stages.uploadMs.push(s.uploadMs); stages.encodeMs.push(s.encodeMs);
     stages.runMs.push(s.runMs); stages.resolveMs.push(s.resolveMs);
   }
@@ -151,7 +146,7 @@ async function benchScenario(w: number, h: number, label: string): Promise<Resul
   if (precision === 'fp32') fp32Outputs.set(key, out.data);
   else if (fp32Outputs.has(key)) psnrVsFp32 = psnr(fp32Outputs.get(key)!, out.data);
 
-  const tiles = denoiser.tileInfo?.tilesX! * denoiser.tileInfo?.tilesY!;
+  const tiles = denoiser.stats!.tiles;
   const res: Result = {
     scenario: label, precision, quality, tiles,
     buildMs, coldMs, warmMs: median(warm),
@@ -161,7 +156,7 @@ async function benchScenario(w: number, h: number, label: string): Promise<Resul
   };
   log(`build ${buildMs.toFixed(0)}ms | cold ${coldMs.toFixed(0)}ms | warm ${res.warmMs.toFixed(1)}ms ` +
     `(${tiles} tiles: run ${res.runMs.toFixed(1)} + encode ${res.encodeMs.toFixed(1)} + resolve ${res.resolveMs.toFixed(1)})`);
-  denoiser.dispose();
+  denoiser.destroyDevice(); // bench owns the whole stack; full teardown per scenario
   render(res);
   return res;
 }
@@ -184,12 +179,13 @@ async function runAll() {
   w: number, h: number,
   opts: { precision?: 'fp32' | 'fp16'; batch?: number; quality?: 'fast' | 'balanced' } = {},
 ) => {
-  const dn = new Denoiser({ precision: opts.precision ?? 'fp32', batch: opts.batch });
-  dn.weightsUrl = '/models';
-  dn.quality = opts.quality ?? 'fast';
-  const out = (await dn.execute(makeNoisy(w, h))) as ImageData;
-  const stats = dn.lastStats;
-  dn.dispose();
+  const dn = await Denoiser.create({
+    precision: opts.precision ?? 'fp32', batch: opts.batch,
+    quality: opts.quality ?? 'fast', weightsUrl: '/models',
+  });
+  const out = (await dn.denoise(makeNoisy(w, h)))!;
+  const stats = dn.stats;
+  dn.destroyDevice();
   return { data: out.data, stats };
 };
 (window as unknown as Record<string, unknown>).__psnr = psnr;

@@ -196,7 +196,7 @@ export class DenoiseEngine {
     if (e.precision === 'fp16' && !e.device.features.has('shader-f16')) {
       // ORT requests shader-f16 on its device when the adapter has it; without
       // it our WGSL can't read/write the fp16 model IO buffers.
-      e.dispose();
+      e.destroy();
       throw new Error('Denoiser: fp16 needs the shader-f16 WebGPU feature (unavailable on this device)');
     }
     e.ops = new GpuImageOps(e.device, e.batch, e.precision === 'fp16');
@@ -516,10 +516,28 @@ export class DenoiseEngine {
     };
   }
 
-  dispose() {
+  /** Free per-image buffers and all non-default geometry sessions. The default
+   *  session (and therefore the shared GPUDevice) stays alive. */
+  trim() {
     [this.color, this.albedo, this.normal, this.accum, this.weight, this.outPixels, this.readback]
       .forEach((b) => b?.destroy());
+    this.color = this.albedo = this.normal = this.accum = this.weight =
+      this.outPixels = this.readback = undefined;
     this.outTexture?.destroy();
+    this.outTexture = undefined;
+    this.imgW = this.imgH = 0;
+    let first = true;
+    for (const [key, g] of this.geos) {
+      if (first) { first = false; continue; }
+      this.releaseGeo(g);
+      this.geos.delete(key);
+    }
+  }
+
+  /** Full teardown. Releasing the last ORT session DESTROYS the shared
+   *  GPUDevice — anything else using it (three.js, canvases) dies with it. */
+  destroy() {
+    this.trim();
     this.geos.forEach((g) => this.releaseGeo(g));
     this.geos.clear();
   }

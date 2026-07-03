@@ -1,385 +1,220 @@
 import { Models } from './weights';
 import { DenoiseEngine } from './ort/engine';
 import { determineModel } from './modelName';
-import { imgToRGBA, flipRGBAY, getCorrectImageData, hasSizeMissmatch, formatTime } from './utils';
-import type {
-  DenoiserProps, DenoiserOptions, ImgInput, InputName, ListenerCallback, OutputMode, Quality,
+import { imgToRGBA, getCorrectImageData, hasSizeMissmatch } from './utils';
+import {
+  DenoiserCreateOptions, DenoiseImageOptions, DenoiseTexturesOptions, DenoiserEvent,
+  DenoiserInputError, Quality,
 } from './types';
-
-interface InputImage {
-  data?: Uint8ClampedArray;
-  texture?: GPUTexture;
-  width: number;
-  height: number;
-}
+import type { DenoiseStats } from './ort/engine';
 
 /**
- * Browser OIDN denoiser running fully on WebGPU via onnxruntime-web.
+ * Browser OIDN denoiser running fully on WebGPU via onnxruntime-web (v2 API).
  *
- * Replaces the old TensorFlow.js + WebGL implementation. The U-Net runs on ORT's
- * WebGPU EP; normalization, layout, sRGB, tiling and overlap-blend are WGSL compute.
- * ORT owns the GPUDevice — read `denoiser.device` to share it with three.js's
- * WebGPURenderer (onnxruntime issue #26107).
+ * Execution is stateless per call — everything about a run is in the call's
+ * options. The instance owns identity only: models, sessions, and the shared
+ * GPUDevice (ORT creates it; read `denoiser.device` to share with three.js).
+ *
+ * ```ts
+ * const denoiser = await Denoiser.create({ precision: 'fp16' });
+ * const img = await denoiser.denoise(noisyImage);                    // ImageData
+ * const tex = await denoiser.denoiseTextures({ color, hdr: true });  // GPUTexture
+ * ```
  */
 export class Denoiser {
-  timesGenerated = 0;
+  /** The shared GPUDevice ORT created — pass to three.js WebGPURenderer. */
+  device!: GPUDevice;
 
-  props: DenoiserProps = {
-    filterType: 'rt',
-    quality: 'fast',
-    hdr: false,
-    srgb: false,
-    height: 0,
-    width: 0,
-    cleanAux: false,
-    dirtyAux: false,
-    directionals: false,
-    useColor: true,
-    useAlbedo: false,
-    useNormal: false,
-  };
-
-  flipOutputY = false;
-  /** Flip texture-input reads (WebGPU render targets are bottom-up). */
-  flipInputY = false;
-  /** Aux textures' flip when their vertical convention differs from color
-   *  (raster G-buffer vs compute-written output). undefined = same as flipInputY. */
-  auxFlipInputY?: boolean;
-  /** ACES tonemap + sRGB-encode the output — for HDR results displayed directly. */
-  tonemapOutput = false;
-  outputMode: OutputMode = 'imgData';
-  debugging = false;
-
-  canvas?: HTMLCanvasElement;
-  outputToCanvas = false;
-
-  //* internal
   private models: Models;
-  private engine?: DenoiseEngine;
+  private engine!: DenoiseEngine;
   private activeModelName?: string;
-  private isDirty = true;
   private aborted = false;
-  private backendLoaded = false;
+  private opts: Required<Pick<DenoiserCreateOptions, 'quality'>> & DenoiserCreateOptions;
+  private listeners = new Map<DenoiserEvent, Set<(v: unknown) => void>>();
 
-  private inputs: Map<InputName, InputImage> = new Map();
-  private outputTexture?: GPUTexture;
+  /** Per-stage wall-clock timings from the most recent run. */
+  get stats(): DenoiseStats | undefined { return this.engine?.lastStats; }
+  get quality(): Quality { return this.opts.quality; }
+  set quality(q: Quality) { this.opts.quality = q; }
 
-  private listeners: Map<ListenerCallback, OutputMode> = new Map();
-  private backendListeners: Set<ListenerCallback> = new Set();
-  private progressListeners: Set<(p: number) => void> = new Set();
-
-  private wasmPaths?: string;
-  private graphCapture = false;
-  private batch?: number;
-  private maxRunPixels?: number;
-
-  stats: Record<string, number | string> = {};
-  private timers: Record<string, number> = {};
-
-  constructor(opts: DenoiserOptions = {}) {
+  private constructor(opts: DenoiserCreateOptions) {
+    this.opts = { quality: 'fast', ...opts };
     this.models = Models.getInstance();
-    this.wasmPaths = opts.wasmPaths;
-    this.graphCapture = opts.graphCapture ?? false;
-    this.batch = opts.batch;
-    this.maxRunPixels = opts.maxRunPixels;
     if (opts.precision) this.models.precision = opts.precision;
-    if (this.debugging) console.log('%c Denoiser initialized (WebGPU/ORT)', 'background: #d66b00; color: white;');
+    if (opts.weightsUrl) this.models.url = opts.weightsUrl;
   }
 
-  //* Getters / setters ------------------------------
-  /** The GPUDevice ORT created — pass to three.js WebGPURenderer for zero-copy interop. */
-  get device(): GPUDevice | undefined { return this.engine?.device; }
-
-  /** Per-stage wall-clock timings from the most recent execution (for benchmarking). */
-  get lastStats() { return this.engine?.lastStats; }
-
-  /** Tile grid the engine would use for the current input size. */
-  get tileInfo() {
-    if (!this.engine) return undefined;
-    const { tilesX, tilesY } = this.engine.tileGrid(this.props.width, this.props.height);
-    return { tilesX, tilesY, tile: this.engine.tile, overlap: this.engine.overlap };
+  /** Async construction: loads the default model and creates the GPUDevice. */
+  static async create(opts: DenoiserCreateOptions = {}): Promise<Denoiser> {
+    const d = new Denoiser(opts);
+    await d.ensureEngine({ hdr: false, albedo: false, normal: false });
+    return d;
   }
 
-  get backendReady() { return this.backendLoaded; }
+  // ---- execution ----------------------------------------------------------
 
-  set weightsUrl(url: string) { this.models.url = url; }
-  get weightsUrl() { return this.models.url; }
-  set weightsPath(path: string) { this.models.path = path; }
-  get weightsPath() { return this.models.path ?? ''; }
-
-  get height() { return this.props.height; }
-  set height(v: number) { this.setProp('height', v); }
-  get width() { return this.props.width; }
-  set width(v: number) { this.setProp('width', v); }
-  get quality() { return this.props.quality; }
-  set quality(v: Quality) { this.setProp('quality', v); }
-  get hdr() { return this.props.hdr; }
-  set hdr(v: boolean) { this.setProp('hdr', v); }
-  get srgb() { return this.props.srgb; }
-  set srgb(v: boolean) { this.props.srgb = v; } // pre/post only, no rebuild
-  get dirtyAux() { return this.props.dirtyAux; }
-  set dirtyAux(v: boolean) {
-    if (v && this.props.cleanAux) this.props.cleanAux = false;
-    this.setProp('dirtyAux', v);
-  }
-
-  private setProp<K extends keyof DenoiserProps>(key: K, value: DenoiserProps[K]) {
-    if (this.props[key] === value) return;
-    this.props[key] = value;
-    this.isDirty = true;
-  }
-
-  //* Build ------------------------------------------
-  async build() {
-    const { name, channels } = determineModel(this.props);
-    if (this.debugging) console.log(`Denoiser: building model ${name} (${channels}ch)`);
-
-    if (this.engine && this.activeModelName === name) {
-      this.isDirty = false;
-      return;
+  /** Denoise an image-like input. Returns ImageData (undefined when aborted). */
+  async denoise(color: ImgInputArg, options: DenoiseImageOptions = {}): Promise<ImageData | undefined> {
+    const c = toRGBA(color);
+    const albedo = options.albedo !== undefined ? toRGBA(options.albedo) : undefined;
+    const normal = options.normal !== undefined ? toRGBA(options.normal) : undefined;
+    if ((albedo && sizeDiffers(albedo, c)) || (normal && sizeDiffers(normal, c))) {
+      throw new DenoiserInputError('aux inputs must match the color input size');
     }
-    this.startTimer('build');
+    await this.ensureEngine({ hdr: false, albedo: !!albedo, normal: !!normal });
+    this.aborted = false;
+    const srgb = options.srgb ?? true; // photographs/screens are sRGB-encoded
+    const out = await this.engine.denoise(c.data, c.width, c.height, {
+      albedo: albedo?.data,
+      normal: normal?.data,
+      // RGBA8 bytes are display-encoded; upstream treats that as identity
+      // (srgb -> Linear). srgb:false means "my bytes are linear" -> encode.
+      srgb: !srgb,
+      hdr: false,
+      flipY: options.flipY,
+      onProgress: this.progressCb(options.onProgress),
+    });
+    if (this.aborted) return this.emitExecuted(undefined);
+    const img = new ImageData(out, c.width, c.height);
+    this.emitExecuted(img);
+    return img;
+  }
+
+  /** Denoise, returning normalized RGBA floats instead of ImageData. */
+  async denoiseToFloat(color: ImgInputArg, options: DenoiseImageOptions = {}): Promise<Float32Array | undefined> {
+    const img = await this.denoise(color, options);
+    if (!img) return undefined;
+    const f = new Float32Array(img.data.length);
+    for (let i = 0; i < f.length; i++) f[i] = img.data[i] / 255;
+    return f;
+  }
+
+  /**
+   * Zero-copy denoise: float textures in, GPUTexture out. With `output` the
+   * result lands in YOUR texture (rgba8unorm / rgba16float, STORAGE_BINDING);
+   * otherwise an engine-owned rgba8unorm texture is returned (valid until the
+   * next call / size change / teardown). Returns undefined when aborted.
+   */
+  async denoiseTextures(options: DenoiseTexturesOptions): Promise<GPUTexture | undefined> {
+    await this.ensureEngine({
+      hdr: !!options.hdr, albedo: !!options.albedo, normal: !!options.normal,
+    });
+    this.aborted = false;
+    const transfer = options.transfer ?? 'linear';
+    const out = await this.engine.denoiseTextures(
+      { color: options.color, albedo: options.albedo, normal: options.normal },
+      {
+        hdr: options.hdr,
+        inputScale: options.inputScale,
+        srgb: false, // float texture inputs are linear
+        tonemap: transfer === 'aces-srgb',
+        // resolve's srgb flag = encode output; the extract side ignores it for hdr
+        ...(transfer === 'srgb' ? { srgb: true } : {}),
+        inputFlipY: options.inputFlipY,
+        auxInputFlipY: options.auxInputFlipY,
+        flipY: options.outputFlipY,
+        toTexture: true,
+        outputTexture: options.output,
+        onProgress: this.progressCb(options.onProgress),
+      });
+    const tex = this.aborted ? undefined : (out as GPUTexture);
+    this.emitExecuted(tex);
+    return tex;
+  }
+
+  /** Drop the in-flight run's result (its GPU work still completes). */
+  abort() { this.aborted = true; }
+
+  // ---- lifecycle ----------------------------------------------------------
+
+  /**
+   * Release image buffers and extra sessions but KEEP the shared GPUDevice
+   * alive (one model session is retained). Safe to call between workloads.
+   */
+  dispose() { this.engine?.trim(); }
+
+  /**
+   * Full teardown. Releasing the last ORT session DESTROYS the shared
+   * GPUDevice — three.js renderers and canvases on it die too. Only call
+   * this when the whole WebGPU stack is going away.
+   */
+  destroyDevice() { this.engine?.destroy(); }
+
+  // ---- events -------------------------------------------------------------
+
+  on(event: DenoiserEvent, cb: (value: unknown) => void): () => void {
+    if (!this.listeners.has(event)) this.listeners.set(event, new Set());
+    this.listeners.get(event)!.add(cb);
+    return () => this.listeners.get(event)?.delete(cb);
+  }
+
+  // ---- internals ----------------------------------------------------------
+
+  private progressCb(local?: (p: number) => void) {
+    const set = this.listeners.get('progress');
+    if (!local && !set?.size) return undefined;
+    return (p: number) => {
+      local?.(p);
+      set?.forEach((cb) => cb(p));
+    };
+  }
+
+  private emitExecuted<T>(value: T): T {
+    this.listeners.get('executed')?.forEach((cb) => cb(value));
+    return value;
+  }
+
+  /** (Re)build the engine when the required model changes. Overlaps creation
+   *  with disposal so the ORT session count never hits zero (device survives). */
+  private async ensureEngine(sel: { hdr: boolean; albedo: boolean; normal: boolean }) {
+    const { name, channels } = determineModel({
+      filterType: 'rt', quality: this.opts.quality, hdr: sel.hdr,
+      useColor: true, useAlbedo: sel.albedo, useNormal: sel.normal,
+      cleanAux: sel.albedo && sel.normal, dirtyAux: false,
+    });
+    if (this.engine && this.activeModelName === name) return;
     const create = async () =>
       DenoiseEngine.create(await this.models.get(name), {
-        channels, wasmPaths: this.wasmPaths, graphCapture: this.graphCapture,
-        batch: this.batch, precision: this.models.precision, maxRunPixels: this.maxRunPixels,
+        channels,
+        wasmPaths: this.opts.wasmPaths,
+        graphCapture: this.opts.graphCapture,
+        batch: this.opts.batch,
+        maxRunPixels: this.opts.maxRunPixels,
+        precision: this.models.precision,
       });
-    // Create the NEW engine before disposing the old: releasing the last ORT
-    // session destroys the shared GPUDevice (taking three.js and any canvas
-    // contexts down with it). Overlapping them keeps the device alive across
-    // model switches. On failure the old engine keeps working.
-    const oldEngine = this.engine;
+    const old = this.engine;
     try {
       this.engine = await create();
     } catch (err) {
-      // fp16 requested but the device lacks shader-f16 — fall back to fp32 models.
       if (this.models.precision !== 'fp16') throw err;
       console.warn('Denoiser: fp16 unavailable, falling back to fp32', err);
       this.models.precision = 'fp32';
       this.engine = await create();
     }
-    oldEngine?.dispose();
+    old?.destroy();
     this.activeModelName = name;
-    this.stopTimer('build');
-
-    this.timesGenerated++;
-    this.isDirty = false;
-    this.backendLoaded = true;
-    this.backendListeners.forEach((cb) => cb(this.device));
+    this.device = this.engine.device;
   }
+}
 
-  //* Execute ----------------------------------------
-  async execute(colorInput?: ImgInput, albedoInput?: ImgInput, normalInput?: ImgInput) {
-    if (colorInput) this.setInputImage('color', colorInput);
-    if (albedoInput) this.setInputImage('albedo', albedoInput);
-    if (normalInput) this.setInputImage('normal', normalInput);
-    return this.executeModel();
-  }
+type ImgInputArg = Parameters<typeof toRGBA>[0];
 
-  private async executeModel() {
-    this.aborted = false;
-    this.startTimer('execution');
-
-    const color = this.inputs.get('color');
-    if (!color) throw new Error('Denoiser: a color input must be set before execution.');
-
-    // aux presence determines the model; if it changed, rebuild
-    this.props.useAlbedo = this.inputs.has('albedo');
-    this.props.useNormal = this.inputs.has('normal');
-    if (this.props.useAlbedo && this.props.useNormal && !this.props.dirtyAux) this.props.cleanAux = true;
-
-    const { name } = determineModel(this.props);
-    if (this.isDirty || !this.engine || this.activeModelName !== name) await this.build();
-    if (this.aborted) return this.finishAbort();
-
-    const albedo = this.inputs.get('albedo');
-    const normal = this.inputs.get('normal');
-    const useTextures = !!color.texture;
-    if (useTextures && ((albedo && !albedo.texture) || (normal && !normal.texture))) {
-      throw new Error('Denoiser: cannot mix texture and pixel-data inputs');
+function toRGBA(input: import('./types').ImgInput): { data: Uint8ClampedArray; width: number; height: number } {
+  if (input && typeof input === 'object' && 'data' in input && input.data instanceof Uint8ClampedArray
+    && !(input instanceof ImageData)) {
+    const raw = input as { data: Uint8ClampedArray; width: number; height: number };
+    if (raw.data.length !== raw.width * raw.height * 4) {
+      throw new DenoiserInputError('raw input must be RGBA8 (width*height*4 bytes)');
     }
-
-    this.startTimer('inference');
-    const common = {
-      srgb: this.props.srgb,
-      hdr: this.props.hdr,
-      flipY: this.flipOutputY, // folded into the resolve kernel (free)
-      tonemap: this.tonemapOutput,
-      onProgress: (p: number) => this.progressListeners.forEach((l) => l(p)),
-    };
-    const out = useTextures
-      ? await this.engine!.denoiseTextures(
-          { color: color.texture!, albedo: albedo?.texture, normal: normal?.texture },
-          {
-            ...common, inputFlipY: this.flipInputY, auxInputFlipY: this.auxFlipInputY,
-            toTexture: this.outputMode === 'gpuTexture',
-            outputTexture: this.outputTexture,
-          })
-      : await this.engine!.denoise(color.data!, color.width, color.height, {
-          ...common, albedo: albedo?.data, normal: normal?.data,
-        });
-    this.stopTimer('inference');
-
-    if (this.aborted) return this.finishAbort();
-    if (out instanceof Uint8ClampedArray) return this.handleReturn(out, color.width, color.height);
-    // GPUTexture result (zero-copy path) — hand it straight back / to listeners.
-    this.listeners.forEach((_mode, cb) => cb(out));
-    this.stopTimer('execution');
-    this.logStats();
-    return this.listeners.size === 0 ? out : undefined;
+    return raw;
   }
-
-  private async handleReturn(rgba: Uint8ClampedArray, width: number, height: number) {
-    if (this.outputToCanvas && this.canvas) {
-      this.canvas.width = width;
-      this.canvas.height = height;
-      this.canvas.getContext('2d')?.putImageData(new ImageData(rgba, width, height), 0, 0);
-    }
-    // listeners with their own response types
-    this.listeners.forEach((mode, cb) => cb(this.format(rgba, width, height, mode)));
-    // direct return only when no listeners
-    let toReturn: unknown;
-    if (this.listeners.size === 0) toReturn = this.format(rgba, width, height, this.outputMode);
-
-    this.stopTimer('execution');
-    this.logStats();
-    return toReturn;
+  let source = input as Exclude<import('./types').ImgInput, { data: Uint8ClampedArray; width: number; height: number }> | ImageData;
+  if (source instanceof HTMLImageElement && hasSizeMissmatch(source)) {
+    source = getCorrectImageData(source);
   }
+  return imgToRGBA(source as Parameters<typeof imgToRGBA>[0]);
+}
 
-  private format(rgba: Uint8ClampedArray, width: number, height: number, mode: OutputMode): unknown {
-    if (mode === 'float32') {
-      const f = new Float32Array(rgba.length);
-      for (let i = 0; i < rgba.length; i++) f[i] = rgba[i] / 255;
-      return f;
-    }
-    return new ImageData(rgba, width, height);
-  }
-
-  private finishAbort() {
-    this.stopTimer('execution');
-    return undefined;
-  }
-
-  //* Inputs -----------------------------------------
-  setInputImage(name: InputName, imgData: ImgInput, flipY = false) {
-    if (!imgData) throw new Error('Denoiser: no image data provided');
-    let source = imgData;
-    if (imgData instanceof HTMLImageElement && hasSizeMissmatch(imgData)) {
-      source = getCorrectImageData(imgData);
-    }
-    const { data, width, height } = imgToRGBA(source);
-    const finalData = flipY ? flipRGBAY(data, width, height) : data;
-
-    if (name === 'color') {
-      if (width !== this.props.width || height !== this.props.height) {
-        this.props.width = width;
-        this.props.height = height;
-      }
-      this.props.useColor = true;
-    } else if (name === 'albedo') {
-      this.props.useAlbedo = true;
-      this.isDirty = true;
-    } else if (name === 'normal') {
-      this.props.useNormal = true;
-      this.isDirty = true;
-    }
-    this.inputs.set(name, { data: finalData, width, height });
-  }
-
-  /**
-   * Zero-copy input: a float texture on the shared GPUDevice (render target,
-   * G-buffer plane). No CPU round-trip and no 8-bit quantization — the way to
-   * feed real HDR into the hdr models. Set `flipInputY` for bottom-up targets.
-   */
-  setInputTexture(name: InputName, texture: GPUTexture) {
-    if (name === 'color') {
-      this.props.width = texture.width;
-      this.props.height = texture.height;
-      this.props.useColor = true;
-    } else if (name === 'albedo') {
-      this.props.useAlbedo = true;
-      this.isDirty = true;
-    } else if (name === 'normal') {
-      this.props.useNormal = true;
-      this.isDirty = true;
-    }
-    this.inputs.set(name, { texture, width: texture.width, height: texture.height });
-  }
-
-  /**
-   * Denoise INTO a caller-owned texture (e.g. a three.js StorageTexture's
-   * GPUTexture): the pathtracer -> denoiser -> render-target integration path.
-   * rgba8unorm (display-ready) or rgba16float (unclamped HDR — let the renderer
-   * tonemap). Needs STORAGE_BINDING usage and texture inputs. Pass undefined to
-   * clear. Implies gpuTexture output for texture-input executes.
-   */
-  setOutputTexture(texture?: GPUTexture) {
-    this.outputTexture = texture;
-  }
-
-  /** Set raw RGBA8 (or already-shaped) pixel data directly. */
-  setInputData(name: InputName, data: Uint8ClampedArray, width: number, height: number) {
-    if (data.length !== width * height * 4) throw new Error('Denoiser: data must be RGBA8 (width*height*4)');
-    if (name === 'color') { this.props.width = width; this.props.height = height; this.props.useColor = true; }
-    else if (name === 'albedo') { this.props.useAlbedo = true; this.isDirty = true; }
-    else if (name === 'normal') { this.props.useNormal = true; this.isDirty = true; }
-    this.inputs.set(name, { data, width, height });
-  }
-
-  resetInputs() {
-    this.inputs.clear();
-    this.props.useColor = false;
-    this.props.useAlbedo = false;
-    this.props.useNormal = false;
-    this.isDirty = true;
-  }
-
-  setCanvas(canvas: HTMLCanvasElement) {
-    this.canvas = canvas;
-    this.outputToCanvas = true;
-  }
-
-  abort() {
-    this.aborted = true;
-  }
-
-  dispose() {
-    this.engine?.dispose();
-    this.engine = undefined;
-    this.resetInputs();
-  }
-
-  //* Listeners --------------------------------------
-  onExecute(listener: ListenerCallback, responseType: OutputMode = this.outputMode) {
-    this.listeners.set(listener, responseType);
-    return () => this.listeners.delete(listener);
-  }
-
-  onProgress(listener: (progress: number) => void) {
-    this.progressListeners.add(listener);
-    return () => this.progressListeners.delete(listener);
-  }
-
-  onBackendReady(listener: ListenerCallback) {
-    if (this.backendReady) listener(this.device);
-    else this.backendListeners.add(listener);
-    return () => this.backendListeners.delete(listener);
-  }
-
-  //* Debug ------------------------------------------
-  startTimer(name: string) { if (this.debugging) this.timers[`${name}In`] = performance.now(); }
-  stopTimer(name: string) {
-    if (!this.debugging) return;
-    this.timers[`${name}Out`] = performance.now();
-    this.stats[name] = this.timers[`${name}Out`] - this.timers[`${name}In`];
-  }
-  logStats() {
-    if (!this.debugging) return;
-    const formatted = Object.entries(this.stats).reduce((acc, [k, v]) => {
-      acc[k] = typeof v === 'string' ? v : formatTime(v);
-      return acc;
-    }, {} as Record<string, string>);
-    console.table(formatted);
-    this.stats = {};
-  }
+function sizeDiffers(a: { width: number; height: number }, b: { width: number; height: number }) {
+  return a.width !== b.width || a.height !== b.height;
 }
