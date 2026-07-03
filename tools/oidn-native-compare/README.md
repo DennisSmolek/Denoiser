@@ -48,3 +48,21 @@ python compare.py color.pfm --png                          # the noisy input, fo
 Notes: `--clean_aux` matches our rasterized (noise-free) G-buffer and the
 `calb_cnrm` model our library selects. Native applies its own autoexposure +
 PU transfer internally — same as our implementation (docs/oidn-color-reference.md).
+
+## Results (July 2026, M-series Mac, this repo's demo scene @ 4 samples)
+
+**Quality:** `native_aux.png` is perfectly smooth on our exact dumped inputs —
+so the web aux path's residual speckle is OUR bug, not a weak-aux scene.
+PSNR(native_color, native_aux) = 47.1 dB (both clean; aux slightly sharper edges).
+
+**Speed (oidnBenchmark, 1080p, 9ch hdr_alb_nrm = BASE model):**
+| | ms/image |
+|---|---|
+| native Metal (GPU) | **24.5** |
+| native CPU | 334.5 |
+| web (ours), base model fp16 | ~224 |
+| web (ours), small model fp16 | ~104 |
+
+Takeaways: we beat native CPU already; native Metal proves this hardware runs
+the base 9ch U-Net in ~25ms → ~9x kernel-efficiency headroom over ORT-web at
+equal model size — the measured ceiling for docs/wgsl-engine-proposal.md.
