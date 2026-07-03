@@ -169,10 +169,24 @@ async function main() {
   const denoisedGpuTex = (renderer.backend as unknown as {
     get: (o: unknown) => { texture?: GPUTexture };
   }).get(denoisedTex)?.texture;
-  const quadScene = new THREE.Scene();
-  const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: denoisedTex })));
   liveCheckbox.disabled = !denoisedGpuTex;
+
+  // The compare overlay canvas: denoised output blitted over the raw path-traced
+  // view, revealed by the slider (pure HTML/CSS clipping).
+  const overlayCanvas = document.querySelector<HTMLCanvasElement>('#outGpu')!;
+  const OVERLAY = fsrMode ? 1024 : 512; // FSR mode blits its 2x-upscaled result
+  overlayCanvas.width = overlayCanvas.height = OVERLAY;
+  const overlayCtx = overlayCanvas.getContext('webgpu')!;
+  overlayCtx.configure({ device, format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  const blitToOverlay = (tex: GPUTexture) => {
+    const enc = device.createCommandEncoder();
+    enc.copyTextureToTexture({ texture: tex }, { texture: overlayCtx.getCurrentTexture() },
+      { width: Math.min(tex.width, OVERLAY), height: Math.min(tex.height, OVERLAY) });
+    device.queue.submit([enc.finish()]);
+  };
+  const reveal = document.querySelector<HTMLInputElement>('#reveal')!;
+  const revealWrap = document.querySelector<HTMLDivElement>('#revealWrap')!;
+  reveal.addEventListener('input', () => { revealWrap.style.width = `${reveal.value}%`; });
   // the one-shot buttons swap models/settings — keep them exclusive with live mode
   liveCheckbox.addEventListener('change', () => {
     document.querySelectorAll<HTMLButtonElement>('#denoise, #denoiseGpu')
@@ -220,20 +234,12 @@ async function main() {
     const fsrTarget = new THREE.RenderTarget(OUT, OUT, { depthBuffer: false }); // rgba8unorm
     const fsrQuad = new THREE.QuadMesh(new THREE.NodeMaterial());
     (fsrQuad.material as THREE.NodeMaterial).fragmentNode = fsrNode; // raw write, no transforms
-    const fsrCanvas = document.querySelector<HTMLCanvasElement>('#outGpu')!;
-    fsrCanvas.width = fsrCanvas.height = OUT; // 1024 backing, CSS-scaled display
-    const fsrCtx = fsrCanvas.getContext('webgpu')!;
-    fsrCtx.configure({ device, format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
     renderFsr = () => {
       renderer.setRenderTarget(fsrTarget);
       fsrQuad.render(renderer);
       renderer.setRenderTarget(null);
       const src = backendGet(fsrTarget.texture);
-      if (!src) return;
-      const enc = device.createCommandEncoder();
-      enc.copyTextureToTexture({ texture: src }, { texture: fsrCtx.getCurrentTexture() },
-        { width: OUT, height: OUT });
-      device.queue.submit([enc.finish()]);
+      if (src) blitToOverlay(src); // 1024 FSR result onto the compare overlay
     };
   }
 
@@ -257,16 +263,24 @@ async function main() {
     }
     denoiser.hdr = true; // linear-HDR float input -> hdr model
     denoiser.srgb = false;
-    // keep the bottom-up orientation end-to-end; three's plane UVs display it upright
-    denoiser.flipInputY = false;
+    denoiser.flipInputY = true; // bottom-up render target -> top-down output
     denoiser.flipOutputY = false;
-    // full-res path: linear HDR out, three tonemaps (ACESFilmic).
-    // FSR path: tonemapped+sRGB out (EASU wants display-encoded input).
-    denoiser.tonemapOutput = fsrMode;
+    // Both modes: display-encoded output (ACES+sRGB in the resolve kernel),
+    // top-down (flipInputY normalizes the bottom-up render target on read).
+    denoiser.tonemapOutput = true;
     denoiser.outputMode = 'gpuTexture';
     denoiser.setInputTexture('color', tracerTex);
-    denoiser.setOutputTexture(denoisedGpuTex);
-    await denoiser.execute();
+    if (fsrMode) {
+      // resolve into the three-owned texture that feeds the fsr1() node
+      denoiser.setOutputTexture(denoisedGpuTex);
+      await denoiser.execute();
+      renderFsr?.(); // EASU/RCAS 2x -> compare overlay
+    } else {
+      // engine-owned rgba8 texture, blitted straight onto the compare overlay
+      denoiser.setOutputTexture(undefined);
+      const outTex = (await denoiser.execute()) as GPUTexture;
+      blitToOverlay(outTex);
+    }
   }
 
   (window as unknown as Record<string, unknown>).__app = { pathTracer, renderer, denoiser, scene, camera };
@@ -282,13 +296,8 @@ async function main() {
         .catch((e) => { log('live denoise ERROR: ' + (e as Error).message); liveCheckbox.checked = false; })
         .finally(() => { denoisingBusy = false; });
     }
-    // present the latest denoised frame: over the noisy accumulation (full-res
-    // mode) or FSR1-upscaled 256->512 into the second canvas (FSR mode, where
-    // the main canvas keeps showing the raw half-res accumulation).
-    if (liveCheckbox.checked && lastDenoisedSample >= 0) {
-      if (fsrMode) renderFsr?.();
-      else renderer.render(quadScene, quadCam);
-    }
+    // presentation happens inside runLiveDenoise (blit / FSR onto the overlay);
+    // the main canvas always shows the raw accumulation for the compare slider.
     status.textContent = status.textContent!.replace(/samples:.*$/m, '').trimEnd() +
       `\nsamples: ${s} / ${maxSamples()}` +
       (liveCheckbox.checked && liveMs ? ` | live denoise: ${liveMs.toFixed(1)} ms` : '');
@@ -337,13 +346,10 @@ async function main() {
     log(`CPU path: denoised in ${(performance.now() - t0).toFixed(1)} ms (${w}×${h}, incl. readback+tonemap)`);
   });
 
-  // 5) Zero-copy GPU path: hand the path tracer's float StorageTexture straight to
-  // the denoiser (real linear-HDR input, hdr model), get an rgba8 texture back, and
-  // blit it to a WebGPU canvas. No CPU pixels anywhere.
+  // 5) Zero-copy GPU path (one-shot): hand the path tracer's float StorageTexture
+  // straight to the denoiser (real linear-HDR input, hdr model), get an rgba8
+  // texture back, and blit it onto the compare overlay. No CPU pixels anywhere.
   const btnGpu = document.querySelector<HTMLButtonElement>('#denoiseGpu')!;
-  const outGpuCanvas = document.querySelector<HTMLCanvasElement>('#outGpu')!;
-  const gpuCtx = outGpuCanvas.getContext('webgpu')!;
-  gpuCtx.configure({ device, format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   btnGpu.disabled = false;
   btnGpu.addEventListener('click', async () => {
     log(`denoising (zero-copy GPU path) at ${Math.floor(pathTracer.samples ?? 0)} samples...`);
@@ -360,11 +366,7 @@ async function main() {
     denoiser.setOutputTexture(undefined); // engine-owned texture (we blit it below)
     denoiser.setInputTexture('color', gpuTexture);
     const outTex = (await denoiser.execute()) as GPUTexture;
-
-    const enc = device.createCommandEncoder();
-    enc.copyTextureToTexture({ texture: outTex }, { texture: gpuCtx.getCurrentTexture() },
-      { width: outTex.width, height: outTex.height });
-    device.queue.submit([enc.finish()]);
+    blitToOverlay(outTex);
     log(`GPU path: denoised in ${(performance.now() - t0).toFixed(1)} ms (${outTex.width}×${outTex.height}, zero-copy)`);
   });
 }

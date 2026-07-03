@@ -10,6 +10,16 @@
       canvas { border: 1px solid #4a5568; width: 512px; height: 512px; }
       button { margin: 1rem 0; padding: 0.5rem 1rem; cursor: pointer; }
       pre { background: #2d3748; padding: 0.75rem; border-radius: 4px; min-height: 4rem; white-space: pre-wrap; }
+      /* before/after compare: noisy path-traced base, denoised overlay clipped by the slider */
+      #compare { position: relative; width: 512px; height: 512px; }
+      #compare canvas { position: absolute; top: 0; left: 0; width: 512px; height: 512px; border: none; }
+      #compare { border: 1px solid #4a5568; }
+      #revealWrap { position: absolute; top: 0; left: 0; height: 100%; width: 50%; overflow: hidden;
+                    border-right: 2px solid #fffa; pointer-events: none; }
+      #revealWrap canvas { pointer-events: none; } /* orbit-drag falls through to #view */
+      #reveal { position: absolute; left: 0; bottom: -30px; width: 100%; }
+      .lbl { position: absolute; top: 6px; font-size: 11px; background: #0008; padding: 2px 6px;
+             border-radius: 3px; pointer-events: none; }
     </style>
   </head>
   <body>
@@ -21,9 +31,17 @@
     <button id="denoise" disabled>Denoise (CPU readback path)</button>
     <button id="denoiseGpu" disabled>Denoise (zero-copy GPU path)</button>
     <div class="row">
-      <figure><canvas id="view" width="512" height="512"></canvas><figcaption>path traced (accumulating)</figcaption></figure>
-      <figure><canvas id="out" width="512" height="512"></canvas><figcaption>denoised — CPU path (LDR input)</figcaption></figure>
-      <figure><canvas id="outGpu" width="512" height="512"></canvas><figcaption>denoised — GPU path (HDR input, no readback)</figcaption></figure>
+      <figure style="margin-bottom: 3rem;">
+        <div id="compare">
+          <canvas id="view" width="512" height="512"></canvas>
+          <div id="revealWrap"><canvas id="outGpu" width="512" height="512"></canvas></div>
+          <span class="lbl" style="left: 6px;">denoised</span>
+          <span class="lbl" style="right: 6px;">path traced</span>
+          <input id="reveal" type="range" min="0" max="100" value="50">
+        </div>
+        <figcaption style="margin-top: 2.2rem;">drag the slider — denoised (left) vs raw accumulation (right); orbit with the mouse</figcaption>
+      </figure>
+      <figure><canvas id="out" width="512" height="512"></canvas><figcaption>denoised — CPU path button (LDR input)</figcaption></figure>
     </div>
     <pre id="status"></pre>
     <script type="module" src="/src/main.ts"></script>
