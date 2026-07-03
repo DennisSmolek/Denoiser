@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, statSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 const modelsDir = fileURLToPath(new URL('../../packages/denoiser/models', import.meta.url));
@@ -28,6 +28,22 @@ export default defineConfig({
     esbuildOptions: { target: 'esnext' },
   },
   plugins: [
+    {
+      // Debug: accept raw binary dumps from the page (POST /dump/<name>) and
+      // write them under ./dumps — used by the native-OIDN reference harness
+      // (tools/oidn-native-compare) to capture the exact float inputs.
+      name: 'dump-endpoint',
+      configureServer(server) {
+        const dumpsDir = fileURLToPath(new URL('./dumps', import.meta.url));
+        server.middlewares.use('/dump', (req, res, next) => {
+          if (req.method !== 'POST') return next();
+          mkdirSync(dumpsDir, { recursive: true });
+          const name = path.basename(decodeURIComponent((req.url ?? '/x').slice(1).split('?')[0] || 'dump.bin'));
+          const out = createWriteStream(path.join(dumpsDir, name));
+          req.pipe(out).on('finish', () => { res.statusCode = 200; res.end('ok'); });
+        });
+      },
+    },
     {
       name: 'serve-models',
       configureServer(server) {

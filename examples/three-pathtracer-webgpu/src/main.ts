@@ -323,6 +323,29 @@ async function main() {
 
   (window as unknown as Record<string, unknown>).__app = { pathTracer, renderer, denoiser, scene, camera, gbuffer, backendGet, renderGBuffer };
 
+  // Native-OIDN reference harness: dump the exact float inputs to ./dumps via the
+  // dev server, for tools/oidn-native-compare (raw GPU reads, no conversions).
+  async function dumpTex(tex: GPUTexture, name: string, bytesPerPixel: number) {
+    const rowBytes = RES * bytesPerPixel;
+    const buf = device.createBuffer({ size: rowBytes * RES, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const enc = device.createCommandEncoder();
+    enc.copyTextureToBuffer({ texture: tex }, { buffer: buf, bytesPerRow: rowBytes }, { width: RES, height: RES });
+    device.queue.submit([enc.finish()]);
+    await buf.mapAsync(GPUMapMode.READ);
+    const data = buf.getMappedRange().slice(0);
+    buf.unmap();
+    buf.destroy();
+    await fetch(`/dump/${name}.${tex.format}.${RES}`, { method: 'POST', body: data });
+  }
+  (window as unknown as Record<string, unknown>).__dumpForOIDN = async () => {
+    if (!gbufferRendered) renderGBuffer();
+    const tracerTex = getTracerTexture()!;
+    await dumpTex(tracerTex, 'color', tracerTex.format.includes('32float') ? 16 : 8);
+    await dumpTex(backendGet(gbuffer.textures[0])!, 'albedo', 8);
+    await dumpTex(backendGet(gbuffer.textures[1])!, 'normal', 8);
+    log(`dumped color (${tracerTex.format}) + albedo/normal (rgba16float) to ./dumps`);
+  };
+
   const loop = () => {
     const s = Math.floor(pathTracer.samples ?? 0);
     if (s < maxSamples()) pathTracer.renderSample();
