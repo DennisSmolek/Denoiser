@@ -7,6 +7,7 @@ import { Denoiser } from 'denoiser';
 const params = new URLSearchParams(location.search);
 const only = params.get('only');
 const batchParam = params.get('batch') ? Number(params.get('batch')) : undefined;
+const captureParam = params.get('capture') === '1';
 const SCENARIOS = [
   { label: '512x512', w: 512, h: 512 },
   { label: '1280x720', w: 1280, h: 720 },
@@ -110,7 +111,7 @@ async function benchScenario(w: number, h: number, label: string): Promise<Resul
   const quality = qualitySel.value as 'fast' | 'balanced';
   log(`--- ${label} (${precision}, ${quality}) ---`);
 
-  const denoiser = new Denoiser({ precision, batch: batchParam });
+  const denoiser = new Denoiser({ precision, batch: batchParam, graphCapture: captureParam });
   denoiser.weightsUrl = '/models';
   denoiser.quality = quality;
 
