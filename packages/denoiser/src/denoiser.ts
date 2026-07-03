@@ -59,6 +59,7 @@ export class Denoiser {
   private backendLoaded = false;
 
   private inputs: Map<InputName, InputImage> = new Map();
+  private outputTexture?: GPUTexture;
 
   private listeners: Map<ListenerCallback, OutputMode> = new Map();
   private backendListeners: Set<ListenerCallback> = new Set();
@@ -204,7 +205,11 @@ export class Denoiser {
     const out = useTextures
       ? await this.engine!.denoiseTextures(
           { color: color.texture!, albedo: albedo?.texture, normal: normal?.texture },
-          { ...common, inputFlipY: this.flipInputY, toTexture: this.outputMode === 'gpuTexture' })
+          {
+            ...common, inputFlipY: this.flipInputY,
+            toTexture: this.outputMode === 'gpuTexture',
+            outputTexture: this.outputTexture,
+          })
       : await this.engine!.denoise(color.data!, color.width, color.height, {
           ...common, albedo: albedo?.data, normal: normal?.data,
         });
@@ -294,6 +299,17 @@ export class Denoiser {
       this.isDirty = true;
     }
     this.inputs.set(name, { texture, width: texture.width, height: texture.height });
+  }
+
+  /**
+   * Denoise INTO a caller-owned texture (e.g. a three.js StorageTexture's
+   * GPUTexture): the pathtracer -> denoiser -> render-target integration path.
+   * rgba8unorm (display-ready) or rgba16float (unclamped HDR — let the renderer
+   * tonemap). Needs STORAGE_BINDING usage and texture inputs. Pass undefined to
+   * clear. Implies gpuTexture output for texture-input executes.
+   */
+  setOutputTexture(texture?: GPUTexture) {
+    this.outputTexture = texture;
   }
 
   /** Set raw RGBA8 (or already-shaped) pixel data directly. */

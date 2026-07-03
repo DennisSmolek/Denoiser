@@ -118,10 +118,77 @@ async function main() {
   const maxSamples = () => Math.max(1, parseInt(maxSamplesInput.value, 10) || 6);
   maxSamplesInput.addEventListener('change', () => pathTracer.reset());
 
+  // The path tracer's live GPUTexture (float, linear HDR). Fetched fresh each use —
+  // the tracer can replace its output target on reset/resize.
+  const getTracerTexture = (): GPUTexture | undefined => {
+    const target = pathTracer._pathTracer.outputTarget;
+    const threeTexture = target.isTexture ? target : target.textures?.[0];
+    return (renderer.backend as unknown as {
+      get: (o: unknown) => { texture?: GPUTexture };
+    }).get(threeTexture)?.texture;
+  };
+
+  // Progressive live denoise: the denoiser resolves straight into a three-owned
+  // StorageTexture (caller-owned render target — no engine copy, no readback),
+  // which a fullscreen quad then presents. pathtracer -> denoiser -> RT -> render.
+  const liveCheckbox = document.querySelector<HTMLInputElement>('#live')!;
+  // rgba16float target: the denoiser writes UNCLAMPED linear HDR into it and
+  // three's own pipeline does the tonemapping + sRGB encode — no color handling
+  // baked into the denoiser output. (srgb formats can't be STORAGE_BINDING.)
+  const denoisedTex = new THREE.StorageTexture(512, 512);
+  denoisedTex.type = THREE.HalfFloatType;
+  denoisedTex.generateMipmaps = false;
+  denoisedTex.colorSpace = THREE.LinearSRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.initTexture(denoisedTex);
+  const denoisedGpuTex = (renderer.backend as unknown as {
+    get: (o: unknown) => { texture?: GPUTexture };
+  }).get(denoisedTex)?.texture;
+  const quadScene = new THREE.Scene();
+  const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: denoisedTex })));
+  liveCheckbox.disabled = !denoisedGpuTex;
+  // the one-shot buttons swap models/settings — keep them exclusive with live mode
+  liveCheckbox.addEventListener('change', () => {
+    document.querySelectorAll<HTMLButtonElement>('#denoise, #denoiseGpu')
+      .forEach((b) => { b.disabled = liveCheckbox.checked; });
+  });
+
+  let denoisingBusy = false;
+  let lastDenoisedSample = -1;
+  let liveMs = 0;
+
+  async function runLiveDenoise() {
+    const tracerTex = getTracerTexture();
+    if (!tracerTex || !denoisedGpuTex) throw new Error('live denoise: textures unavailable');
+    denoiser.hdr = true; // linear-HDR float input -> hdr model
+    denoiser.srgb = false;
+    // keep the bottom-up orientation end-to-end; three's plane UVs display it upright
+    denoiser.flipInputY = false;
+    denoiser.flipOutputY = false;
+    denoiser.tonemapOutput = false; // linear HDR out — three tonemaps (ACESFilmic)
+    denoiser.outputMode = 'gpuTexture';
+    denoiser.setInputTexture('color', tracerTex);
+    denoiser.setOutputTexture(denoisedGpuTex);
+    await denoiser.execute();
+  }
+
   const loop = () => {
-    if (Math.floor(pathTracer.samples ?? 0) < maxSamples()) pathTracer.renderSample();
+    const s = Math.floor(pathTracer.samples ?? 0);
+    if (s < maxSamples()) pathTracer.renderSample();
+    if (liveCheckbox.checked && !denoisingBusy && s !== lastDenoisedSample) {
+      denoisingBusy = true;
+      const t0 = performance.now();
+      runLiveDenoise()
+        .then(() => { liveMs = performance.now() - t0; lastDenoisedSample = s; })
+        .catch((e) => { log('live denoise ERROR: ' + (e as Error).message); liveCheckbox.checked = false; })
+        .finally(() => { denoisingBusy = false; });
+    }
+    // present the latest denoised frame over the noisy accumulation
+    if (liveCheckbox.checked && lastDenoisedSample >= 0) renderer.render(quadScene, quadCam);
     status.textContent = status.textContent!.replace(/samples:.*$/m, '').trimEnd() +
-      `\nsamples: ${Math.floor(pathTracer.samples ?? 0)} / ${maxSamples()}`;
+      `\nsamples: ${s} / ${maxSamples()}` +
+      (liveCheckbox.checked && liveMs ? ` | live denoise: ${liveMs.toFixed(1)} ms` : '');
     requestAnimationFrame(loop);
   };
   loop();
@@ -177,13 +244,7 @@ async function main() {
   btnGpu.disabled = false;
   btnGpu.addEventListener('click', async () => {
     log(`denoising (zero-copy GPU path) at ${Math.floor(pathTracer.samples ?? 0)} samples...`);
-    // outputTarget is the path tracer's float StorageTexture itself (not a render
-    // target). three r185 WebGPU backend: backend.get(texture).texture = GPUTexture.
-    const target = pathTracer._pathTracer.outputTarget;
-    const threeTexture = target.isTexture ? target : target.textures?.[0];
-    const gpuTexture = (renderer.backend as unknown as {
-      get: (o: unknown) => { texture?: GPUTexture };
-    }).get(threeTexture)?.texture;
+    const gpuTexture = getTracerTexture();
     if (!gpuTexture) { log('ERROR: could not resolve the render target’s GPUTexture'); return; }
 
     const t0 = performance.now();
@@ -193,6 +254,7 @@ async function main() {
     denoiser.flipOutputY = false;
     denoiser.tonemapOutput = true; // ACES + sRGB in the resolve kernel for display
     denoiser.outputMode = 'gpuTexture';
+    denoiser.setOutputTexture(undefined); // engine-owned texture (we blit it below)
     denoiser.setInputTexture('color', gpuTexture);
     const outTex = (await denoiser.execute()) as GPUTexture;
 

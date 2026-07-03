@@ -200,7 +200,7 @@ fn resolveRgb(rgbIn: vec3<f32>, p: P) -> vec3<f32> {
     if (p.srgb == 1u) { rgb = linearToSrgb(rgb); }
     if (p.hdr == 0u) { rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)); }
   }
-  return clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+  return rgb; // NOTE: unclamped — hdr float outputs keep their range; unorm sinks clamp
 }
 `;
 
@@ -217,17 +217,20 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let idx = gid.y * p.imgW + gid.x;
   let gplane = p.imgW * p.imgH;
   let w = weight[idx] + 1e-8;
-  let rgb = resolveRgb(vec3<f32>(accum[0u*gplane+idx], accum[1u*gplane+idx], accum[2u*gplane+idx]) / w, p);
+  let rgb = clamp(resolveRgb(vec3<f32>(accum[0u*gplane+idx], accum[1u*gplane+idx], accum[2u*gplane+idx]) / w, p),
+                  vec3<f32>(0.0), vec3<f32>(1.0));
   let oy = select(gid.y, p.imgH - 1u - gid.y, p.flipY == 1u);
   dst[oy * p.imgW + gid.x] = pack4x8unorm(vec4<f32>(rgb, 1.0));
 }
 `;
 
-const RESOLVE_TEX = /* wgsl */ `
+// format: rgba8unorm (clamped, display-ready) or rgba16float (unclamped — keeps
+// HDR range so e.g. three.js can tonemap in its own pipeline).
+const RESOLVE_TEX = (format: string) => /* wgsl */ `
 ${RESOLVE_COMMON}
 @group(0) @binding(0) var<storage, read> accum: array<f32>;
 @group(0) @binding(1) var<storage, read> weight: array<f32>;
-@group(0) @binding(2) var dst: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var dst: texture_storage_2d<${format}, write>;
 @group(0) @binding(3) var<uniform> p: P;
 
 @compute @workgroup_size(8, 8)
@@ -236,7 +239,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let idx = gid.y * p.imgW + gid.x;
   let gplane = p.imgW * p.imgH;
   let w = weight[idx] + 1e-8;
-  let rgb = resolveRgb(vec3<f32>(accum[0u*gplane+idx], accum[1u*gplane+idx], accum[2u*gplane+idx]) / w, p);
+  var rgb = resolveRgb(vec3<f32>(accum[0u*gplane+idx], accum[1u*gplane+idx], accum[2u*gplane+idx]) / w, p);
+  ${format === 'rgba8unorm' ? 'rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));' : ''}
   let oy = select(gid.y, p.imgH - 1u - gid.y, p.flipY == 1u);
   textureStore(dst, vec2<i32>(i32(gid.x), i32(oy)), vec4<f32>(rgb, 1.0));
 }
@@ -254,7 +258,7 @@ export class GpuImageOps {
   private accumPipe: GPUComputePipeline;
   private resolvePipe: GPUComputePipeline;
   private extractTexPipe?: GPUComputePipeline; // lazy — texture-input path
-  private resolveTexPipe?: GPUComputePipeline; // lazy — texture-output path
+  private resolveTexPipes = new Map<string, GPUComputePipeline>(); // lazy, per format
   private extractParams: GPUBuffer; // 32B uniform (common)
   private extractOffsets: GPUBuffer; // maxBatch * 8B storage (per-slot startX/startY)
   private accumParams: GPUBuffer[]; // one 64B uniform per batch slot
@@ -358,15 +362,20 @@ export class GpuImageOps {
       tileW, tileH, count);
   }
 
-  /** Resolve straight into an rgba8unorm storage texture (no CPU readback). */
+  /** Resolve straight into a storage texture (no CPU readback). rgba8unorm or rgba16float. */
   encodeResolveToTexture(
     enc: GPUCommandEncoder, accum: GPUBuffer, weight: GPUBuffer, dst: GPUTextureView,
-    imgW: number, imgH: number, srgb: boolean, hdr: boolean, flipY = false, tonemap = false,
+    format: string, imgW: number, imgH: number,
+    srgb: boolean, hdr: boolean, flipY = false, tonemap = false,
   ) {
-    this.resolveTexPipe ??= this.mk(RESOLVE_TEX);
+    let pipe = this.resolveTexPipes.get(format);
+    if (!pipe) {
+      pipe = this.mk(RESOLVE_TEX(format));
+      this.resolveTexPipes.set(format, pipe);
+    }
     this.device.queue.writeBuffer(this.resolveParams, 0,
       new Uint32Array([imgW, imgH, srgb ? 1 : 0, hdr ? 1 : 0, flipY ? 1 : 0, tonemap ? 1 : 0, 0, 0]));
-    this.runMixed(enc, this.resolveTexPipe,
+    this.runMixed(enc, pipe,
       [{ buffer: accum }, { buffer: weight }, dst, { buffer: this.resolveParams }], imgW, imgH);
   }
 }

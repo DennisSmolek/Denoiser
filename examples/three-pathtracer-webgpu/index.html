@@ -15,6 +15,7 @@
   <body>
     <h1>three r185 WebGPUPathTracer → WebGPU/ONNX denoiser (one GPUDevice)</h1>
     <label>max samples <input id="maxSamples" type="number" value="6" min="1" max="500" style="width:5rem"></label>
+    <label><input id="live" type="checkbox" disabled> live denoise (progressive, zero-copy → render target)</label>
     <button id="denoise" disabled>Denoise (CPU readback path)</button>
     <button id="denoiseGpu" disabled>Denoise (zero-copy GPU path)</button>
     <div class="row">

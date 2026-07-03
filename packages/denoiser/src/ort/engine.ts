@@ -64,8 +64,16 @@ export interface TextureInputs {
 export interface TextureDenoiseOptions extends DenoiseOptions {
   /** Source textures are bottom-up (WebGPU render targets) — flip reads. */
   inputFlipY?: boolean;
-  /** Resolve into an rgba8unorm GPUTexture and return it (no CPU readback). */
+  /** Resolve into an engine-owned rgba8unorm GPUTexture and return it (no CPU readback). */
   toTexture?: boolean;
+  /**
+   * Resolve into a CALLER-owned texture instead (e.g. a three.js StorageTexture's
+   * GPUTexture) — the integration path: pathtracer -> denoiser -> render target.
+   * Must match the image size, have STORAGE_BINDING usage, and be rgba8unorm
+   * (clamped/display-ready) or rgba16float (unclamped, keeps HDR range so the
+   * renderer's own tonemapping stays in charge). Implies toTexture.
+   */
+  outputTexture?: GPUTexture;
 }
 
 /** Wall-clock stage timings for the last denoise() call (all in ms). */
@@ -438,11 +446,24 @@ export class DenoiseEngine {
 
     const tTiles = performance.now();
     let out: Uint8ClampedArray | GPUTexture;
-    if (opts.toTexture) {
-      const tex = this.ensureOutTexture(w, h);
+    if (opts.outputTexture || opts.toTexture) {
+      let tex = opts.outputTexture;
+      if (tex) {
+        if (tex.width !== w || tex.height !== h) {
+          throw new Error(`Denoiser: outputTexture is ${tex.width}x${tex.height}, image is ${w}x${h}`);
+        }
+        if (!(tex.usage & GPUTextureUsage.STORAGE_BINDING)) {
+          throw new Error('Denoiser: outputTexture needs STORAGE_BINDING usage');
+        }
+        if (tex.format !== 'rgba8unorm' && tex.format !== 'rgba16float') {
+          throw new Error(`Denoiser: outputTexture must be rgba8unorm or rgba16float (got ${tex.format})`);
+        }
+      } else {
+        tex = this.ensureOutTexture(w, h);
+      }
       const e3 = d.createCommandEncoder();
       this.ops.encodeResolveToTexture(
-        e3, this.accum!, this.weight!, tex.createView(),
+        e3, this.accum!, this.weight!, tex.createView(), tex.format,
         w, h, !!opts.srgb, !!opts.hdr, !!opts.flipY, !!opts.tonemap);
       d.queue.submit([e3.finish()]);
       await d.queue.onSubmittedWorkDone();
