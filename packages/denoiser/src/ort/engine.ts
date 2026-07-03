@@ -48,7 +48,9 @@ export interface DenoiseOptions {
   albedo?: Uint8ClampedArray; // required when channels >= 6
   normal?: Uint8ClampedArray; // required when channels >= 9
   srgb?: boolean; // input is sRGB -> convert to linear before the model, back after
-  hdr?: boolean; // skip the [0,1] output clamp
+  hdr?: boolean; // linear-HDR input: OIDN PU transfer + autoexposure applied around the model
+  /** Manual HDR input scale (overrides autoexposure; OIDN semantics). */
+  inputScale?: number;
   flipY?: boolean; // flip the output vertically (in the resolve kernel, free)
   /** ACES tonemap + sRGB-encode the output (for HDR results going straight to a canvas). */
   tonemap?: boolean;
@@ -59,12 +61,15 @@ export interface DenoiseOptions {
 export interface TextureInputs {
   color: GPUTexture;
   albedo?: GPUTexture; // [0,1] floats
-  normal?: GPUTexture; // already [-1,1] floats (G-buffer convention)
+  normal?: GPUTexture; // [-1,1] floats (G-buffer convention); encoded to [0,1] for the network
 }
 
 export interface TextureDenoiseOptions extends DenoiseOptions {
   /** Source textures are bottom-up (WebGPU render targets) — flip reads. */
   inputFlipY?: boolean;
+  /** Aux textures' vertical convention when it differs from color (e.g. raster
+   *  G-buffer vs compute-written tracer output). Defaults to inputFlipY. */
+  auxInputFlipY?: boolean;
   /** Resolve into an engine-owned rgba8unorm GPUTexture and return it (no CPU readback). */
   toTexture?: boolean;
   /**
@@ -389,6 +394,13 @@ export class DenoiseEngine {
     const clr = d.createCommandEncoder();
     clr.clearBuffer(this.accum!);
     clr.clearBuffer(this.weight!);
+    // HDR input scale (OIDN semantics): manual value, or autoexposure computed
+    // on the GPU from the color texture. 8-bit inputs default to scale 1.
+    if (opts.hdr && opts.inputScale === undefined && src.tex) {
+      this.ops.encodeAutoexposure(clr, src.tex.color.createView(), w, h);
+    } else {
+      this.ops.setExposure(opts.inputScale ?? 1);
+    }
     d.queue.submit([clr.finish()]);
     const tUpload = performance.now();
 
@@ -413,11 +425,12 @@ export class DenoiseEngine {
       if (src.tex) {
         this.ops.encodeExtractTilesTex(
           e1, colorView!, albedoView!, normalView!, geo.nchwInput,
-          w, h, tileW, tileH, this.channels, !!opts.srgb, !!opts.inputFlipY, offsets, chunk.length);
+          w, h, tileW, tileH, this.channels, !!opts.srgb, !!opts.inputFlipY, !!opts.hdr,
+          !!(opts.auxInputFlipY ?? opts.inputFlipY), offsets, chunk.length);
       } else {
         this.ops.encodeExtractTiles(
           e1, this.color!, albedoBuf!, normalBuf!, geo.nchwInput,
-          w, h, tileW, tileH, this.channels, !!opts.srgb, offsets, chunk.length);
+          w, h, tileW, tileH, this.channels, !!opts.srgb, !!opts.hdr, offsets, chunk.length);
       }
       d.queue.submit([e1.finish()]);
       const t1 = performance.now();

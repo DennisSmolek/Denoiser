@@ -62,7 +62,7 @@ def reference(weights, inp):
     x = np.concatenate([up2(x), pool2], axis=1); x = cv("dec_conv3a", x); x = cv("dec_conv3b", x)
     x = np.concatenate([up2(x), pool1], axis=1); x = cv("dec_conv2a", x); x = cv("dec_conv2b", x)
     x = np.concatenate([up2(x), inp], axis=1);   x = cv("dec_conv1a", x); x = cv("dec_conv1b", x)
-    x = cv("dec_conv0", x)  # relu6 to match unet.ts default
+    x = cv("dec_conv0", x, act=False)  # no final activation (upstream OIDN)
     return x
 
 
@@ -80,7 +80,7 @@ def reference_large(weights, inp):
     x = np.concatenate([up2(x), pool2], axis=1); x = cv("dec_conv3a", x); x = cv("dec_conv3b", x)
     x = np.concatenate([up2(x), pool1], axis=1); x = cv("dec_conv2a", x); x = cv("dec_conv2b", x)
     x = np.concatenate([up2(x), inp], axis=1);   x = cv("dec_conv1a", x); x = cv("dec_conv1b", x)
-    x = cv("dec_conv1c", x)
+    x = cv("dec_conv1c", x, act=False)
     return x
 
 
@@ -94,7 +94,7 @@ def main():
         ref_fn, in_ch = reference, weights["enc_conv0.weight"].shape[1]
 
     out_path = "/tmp/parity.onnx"
-    convert(tza, out_path, size, size, fp16=False, final_activation="relu6")
+    convert(tza, out_path, size, size, fp16=False, final_activation="none")
 
     rng = np.random.default_rng(0)
     inp = rng.random((1, in_ch, size, size), dtype=np.float32)
@@ -113,7 +113,7 @@ def main():
     # and check each item matches its independent reference (validates that
     # batching through conv/pool/resize/concat keeps items independent).
     dyn_path = "/tmp/parity_dynamic.onnx"
-    convert(tza, dyn_path, "height", "width", fp16=False, final_activation="relu6")
+    convert(tza, dyn_path, "height", "width", fp16=False, final_activation="none")
     inp2 = rng.random((1, in_ch, size, size), dtype=np.float32)
     batch = np.concatenate([inp, inp2], axis=0)
     sess_d = ort.InferenceSession(dyn_path, providers=["CPUExecutionProvider"])

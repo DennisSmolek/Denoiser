@@ -26,6 +26,8 @@
   <body>
     <h1>three r185 WebGPUPathTracer → WebGPU/ONNX denoiser (one GPUDevice)</h1>
     <label>max samples <input id="maxSamples" type="number" value="6" min="1" max="500" style="width:5rem"></label>
+    <label>settle <input id="settle" type="number" value="0" min="0" max="2000" step="50" style="width:4.5rem"> ms</label>
+    <label>fade <input id="fade" type="number" value="0" min="0" max="1000" step="50" style="width:4.5rem"> ms</label>
     <label><input id="live" type="checkbox" disabled> live denoise (progressive, zero-copy → render target)</label>
     <label><input id="aux" type="checkbox"> G-buffer aux (albedo+normal MRT → 9ch model)</label>
     <label><input id="fsr" type="checkbox"> FSR1 upscale (render 50% → denoise → EASU/RCAS)</label>

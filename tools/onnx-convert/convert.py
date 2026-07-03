@@ -181,8 +181,8 @@ def main() -> None:
     ap.add_argument("--size", type=int, default=0,
                     help="fixed square tile size; 0 (default) = dynamic batch/height/width free dims")
     ap.add_argument("--fp16", action="store_true")
-    ap.add_argument("--final-activation", choices=["relu6", "none"], default="relu6",
-                    help="dec_conv0 activation; relu6 matches current unet.ts")
+    ap.add_argument("--final-activation", choices=["relu6", "none"], default="none",
+                    help="output conv activation; none matches upstream OIDN (relu6 = legacy TFJS parity)")
     args = ap.parse_args()
 
     os.makedirs(args.outdir, exist_ok=True)

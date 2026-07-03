@@ -190,9 +190,16 @@ async function main() {
   reveal.addEventListener('input', () => { revealWrap.style.width = `${reveal.value}%`; });
 
   // Orbit-aware pacing: while the camera moves we abort any in-flight denoise,
-  // hold off firing new ones until the view settles, and fade the (stale)
-  // denoised overlay out; it fades back in with the first fresh result.
-  const SETTLE_MS = 150;
+  // optionally hold new ones until the view settles, and optionally fade the
+  // stale overlay out (fades back in with the first fresh result). Both are
+  // user-tunable: fading is nicer UX but hides the real denoise latency, so
+  // they default to 0 for honest speed testing.
+  const settleInput = document.querySelector<HTMLInputElement>('#settle')!;
+  const fadeInput = document.querySelector<HTMLInputElement>('#fade')!;
+  const settleMs = () => Math.max(0, parseInt(settleInput.value, 10) || 0);
+  const applyFade = () => { overlayCanvas.style.transition = `opacity ${Math.max(0, parseInt(fadeInput.value, 10) || 0)}ms ease`; };
+  fadeInput.addEventListener('change', applyFade);
+  applyFade();
   let lastRestart = 0;
   function onAccumulationRestart() {
     lastRestart = performance.now();
@@ -275,7 +282,8 @@ async function main() {
     }
     denoiser.hdr = true; // linear-HDR float input -> hdr model
     denoiser.srgb = false;
-    denoiser.flipInputY = true; // bottom-up render target -> top-down output
+    denoiser.flipInputY = true; // bottom-up tracer output -> top-down
+    denoiser.auxFlipInputY = false; // the raster G-buffer is already top-down
     denoiser.flipOutputY = false;
     // Both modes: display-encoded output (ACES+sRGB in the resolve kernel),
     // top-down (flipInputY normalizes the bottom-up render target on read).
@@ -298,12 +306,12 @@ async function main() {
     overlayCanvas.style.opacity = '1'; // fresh result for the current view
   }
 
-  (window as unknown as Record<string, unknown>).__app = { pathTracer, renderer, denoiser, scene, camera };
+  (window as unknown as Record<string, unknown>).__app = { pathTracer, renderer, denoiser, scene, camera, gbuffer, backendGet, renderGBuffer };
 
   const loop = () => {
     const s = Math.floor(pathTracer.samples ?? 0);
     if (s < maxSamples()) pathTracer.renderSample();
-    const settled = performance.now() - lastRestart > SETTLE_MS;
+    const settled = performance.now() - lastRestart > settleMs();
     if (liveCheckbox.checked && !denoisingBusy && s !== lastDenoisedSample && settled && s > 0) {
       denoisingBusy = true;
       const t0 = performance.now();

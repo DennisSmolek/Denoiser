@@ -42,6 +42,9 @@ export class Denoiser {
   flipOutputY = false;
   /** Flip texture-input reads (WebGPU render targets are bottom-up). */
   flipInputY = false;
+  /** Aux textures' flip when their vertical convention differs from color
+   *  (raster G-buffer vs compute-written output). undefined = same as flipInputY. */
+  auxFlipInputY?: boolean;
   /** ACES tonemap + sRGB-encode the output — for HDR results displayed directly. */
   tonemapOutput = false;
   outputMode: OutputMode = 'imgData';
@@ -208,7 +211,7 @@ export class Denoiser {
       ? await this.engine!.denoiseTextures(
           { color: color.texture!, albedo: albedo?.texture, normal: normal?.texture },
           {
-            ...common, inputFlipY: this.flipInputY,
+            ...common, inputFlipY: this.flipInputY, auxInputFlipY: this.auxFlipInputY,
             toTexture: this.outputMode === 'gpuTexture',
             outputTexture: this.outputTexture,
           })
