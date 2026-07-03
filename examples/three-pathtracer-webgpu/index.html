@@ -17,6 +17,7 @@
     <label>max samples <input id="maxSamples" type="number" value="6" min="1" max="500" style="width:5rem"></label>
     <label><input id="live" type="checkbox" disabled> live denoise (progressive, zero-copy → render target)</label>
     <label><input id="aux" type="checkbox"> G-buffer aux (albedo+normal MRT → 9ch model)</label>
+    <label><input id="fsr" type="checkbox"> FSR1 upscale (render 50% → denoise → EASU/RCAS)</label>
     <button id="denoise" disabled>Denoise (CPU readback path)</button>
     <button id="denoiseGpu" disabled>Denoise (zero-copy GPU path)</button>
     <div class="row">

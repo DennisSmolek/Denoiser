@@ -5,9 +5,9 @@
   "type": "module",
   "description": "Denoiser performance benchmark harness (Phase 0 of perf-plan.md).",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5175",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview --port 5175"
   },
   "dependencies": {
     "denoiser": "workspace:*"

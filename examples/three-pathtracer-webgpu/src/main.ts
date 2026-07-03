@@ -5,7 +5,8 @@
 // `denoiser` package. Aux (albedo/normal) G-buffer + zero-copy GPU IO are the next
 // increments; this validates the shared-device pipeline end to end.
 import * as THREE from 'three/webgpu';
-import { mrt, diffuseColor, normalView } from 'three/tsl';
+import { mrt, diffuseColor, normalView, texture } from 'three/tsl';
+import { fsr1 } from 'three/addons/tsl/display/FSR1Node.js';
 import { WebGPUPathTracer } from 'three-gpu-pathtracer/webgpu';
 import { GradientEquirectTexture } from 'three-gpu-pathtracer/src/textures/GradientEquirectTexture.js';
 import { Denoiser } from 'denoiser';
@@ -94,10 +95,17 @@ async function main() {
     log(`UNCAPTURED GPU ERROR: ${(e as GPUUncapturedErrorEvent).error.message}`));
 
   // 2) three.js WebGPURenderer on the SAME device.
+  // FSR mode (?fsr=1) keeps the render/denoise at 512 and FSR1-upscales 2x to a
+  // 1024 output — i.e. rendering 25% of the display pixels. (Rendering at a
+  // reduced size instead is blocked upstream: this unreleased WebGPUPathTracer
+  // branch wedges on setSize/renderScale and hangs renderSample at non-512
+  // sizes, so the tracer must stay at its initial resolution.)
+  const fsrMode = new URLSearchParams(location.search).has('fsr');
+  const RES = 512;
   const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
   const renderer = new THREE.WebGPURenderer({ canvas, antialias: true, device });
   await renderer.init();
-  renderer.setSize(512, 512, false);
+  renderer.setSize(RES, RES, false);
 
   const { scene, camera } = buildScene();
 
@@ -136,10 +144,12 @@ async function main() {
   // rgba16float target: the denoiser writes UNCLAMPED linear HDR into it and
   // three's own pipeline does the tonemapping + sRGB encode — no color handling
   // baked into the denoiser output. (srgb formats can't be STORAGE_BINDING.)
-  const denoisedTex = new THREE.StorageTexture(512, 512);
+  // In FSR mode the denoiser instead writes tonemapped+sRGB (EASU's input
+  // contract) and three's transforms are bypassed.
+  const denoisedTex = new THREE.StorageTexture(RES, RES);
   denoisedTex.type = THREE.HalfFloatType;
   denoisedTex.generateMipmaps = false;
-  denoisedTex.colorSpace = THREE.LinearSRGBColorSpace;
+  denoisedTex.colorSpace = fsrMode ? THREE.NoColorSpace : THREE.LinearSRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.initTexture(denoisedTex);
   const denoisedGpuTex = (renderer.backend as unknown as {
@@ -159,7 +169,7 @@ async function main() {
   // albedo = material base color (unlit), normal = view-space normal [-1,1].
   // Rasterized aux is noise-free, so the cleanAux (calb_cnrm) models apply.
   const auxCheckbox = document.querySelector<HTMLInputElement>('#aux')!;
-  const gbuffer = new THREE.RenderTarget(512, 512, { count: 2, type: THREE.HalfFloatType });
+  const gbuffer = new THREE.RenderTarget(RES, RES, { count: 2, type: THREE.HalfFloatType });
   gbuffer.textures[0].name = 'albedo';
   gbuffer.textures[1].name = 'normal';
   let gbufferRendered = false;
@@ -175,6 +185,44 @@ async function main() {
     get: (o: unknown) => { texture?: GPUTexture };
   }).get(o)?.texture;
 
+  // FSR1 mode (?fsr=1, page reload): path-trace + denoise at HALF resolution and
+  // upscale 2x with three's official FSR1 (EASU+RCAS) TSL node into the #outGpu
+  // canvas. Per AMD guidance EASU wants tonemapped, gamma-encoded, anti-aliased
+  // (= denoised!) [0,1] input — the denoiser resolves with tonemapOutput
+  // (ACES+sRGB) and the FSR chain passes values through untouched.
+  const fsrCheckbox = document.querySelector<HTMLInputElement>('#fsr')!;
+  fsrCheckbox.checked = fsrMode;
+  fsrCheckbox.addEventListener('change', () => {
+    location.search = fsrCheckbox.checked ? '?fsr=1' : '';
+  });
+  let renderFsr: (() => void) | undefined;
+  if (fsrMode) {
+    const OUT = 1024;
+    const fsrNode = fsr1(texture(denoisedTex), 0.2);
+    // FSR1Node auto-sizes its output to the renderer's drawing buffer (256 here);
+    // pin it to the display resolution instead.
+    const origSetSize = fsrNode.setSize.bind(fsrNode);
+    fsrNode.setSize = () => origSetSize(OUT, OUT);
+    const fsrTarget = new THREE.RenderTarget(OUT, OUT, { depthBuffer: false }); // rgba8unorm
+    const fsrQuad = new THREE.QuadMesh(new THREE.NodeMaterial());
+    (fsrQuad.material as THREE.NodeMaterial).fragmentNode = fsrNode; // raw write, no transforms
+    const fsrCanvas = document.querySelector<HTMLCanvasElement>('#outGpu')!;
+    fsrCanvas.width = fsrCanvas.height = OUT; // 1024 backing, CSS-scaled display
+    const fsrCtx = fsrCanvas.getContext('webgpu')!;
+    fsrCtx.configure({ device, format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+    renderFsr = () => {
+      renderer.setRenderTarget(fsrTarget);
+      fsrQuad.render(renderer);
+      renderer.setRenderTarget(null);
+      const src = backendGet(fsrTarget.texture);
+      if (!src) return;
+      const enc = device.createCommandEncoder();
+      enc.copyTextureToTexture({ texture: src }, { texture: fsrCtx.getCurrentTexture() },
+        { width: OUT, height: OUT });
+      device.queue.submit([enc.finish()]);
+    };
+  }
+
   let denoisingBusy = false;
   let lastDenoisedSample = -1;
   let liveMs = 0;
@@ -182,6 +230,7 @@ async function main() {
   async function runLiveDenoise() {
     const tracerTex = getTracerTexture();
     if (!tracerTex || !denoisedGpuTex) throw new Error('live denoise: textures unavailable');
+    if (tracerTex.width !== RES) return; // tracer target not ready yet
     if (auxCheckbox.checked) {
       if (!gbufferRendered) renderGBuffer();
       const albedoTex = backendGet(gbuffer.textures[0]);
@@ -197,12 +246,16 @@ async function main() {
     // keep the bottom-up orientation end-to-end; three's plane UVs display it upright
     denoiser.flipInputY = false;
     denoiser.flipOutputY = false;
-    denoiser.tonemapOutput = false; // linear HDR out — three tonemaps (ACESFilmic)
+    // full-res path: linear HDR out, three tonemaps (ACESFilmic).
+    // FSR path: tonemapped+sRGB out (EASU wants display-encoded input).
+    denoiser.tonemapOutput = fsrMode;
     denoiser.outputMode = 'gpuTexture';
     denoiser.setInputTexture('color', tracerTex);
     denoiser.setOutputTexture(denoisedGpuTex);
     await denoiser.execute();
   }
+
+  (window as unknown as Record<string, unknown>).__app = { pathTracer, renderer, denoiser, scene, camera };
 
   const loop = () => {
     const s = Math.floor(pathTracer.samples ?? 0);
@@ -215,8 +268,13 @@ async function main() {
         .catch((e) => { log('live denoise ERROR: ' + (e as Error).message); liveCheckbox.checked = false; })
         .finally(() => { denoisingBusy = false; });
     }
-    // present the latest denoised frame over the noisy accumulation
-    if (liveCheckbox.checked && lastDenoisedSample >= 0) renderer.render(quadScene, quadCam);
+    // present the latest denoised frame: over the noisy accumulation (full-res
+    // mode) or FSR1-upscaled 256->512 into the second canvas (FSR mode, where
+    // the main canvas keeps showing the raw half-res accumulation).
+    if (liveCheckbox.checked && lastDenoisedSample >= 0) {
+      if (fsrMode) renderFsr?.();
+      else renderer.render(quadScene, quadCam);
+    }
     status.textContent = status.textContent!.replace(/samples:.*$/m, '').trimEnd() +
       `\nsamples: ${s} / ${maxSamples()}` +
       (liveCheckbox.checked && liveMs ? ` | live denoise: ${liveMs.toFixed(1)} ms` : '');

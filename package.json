@@ -8,6 +8,12 @@
   "packageManager": "yarn@4.1.1",
   "private": true,
   "scripts": {
+    "dev": "yarn dev:three",
+    "dev:three": "yarn workspace three-pathtracer-webgpu dev",
+    "dev:test": "yarn workspace denoiser-package-test dev",
+    "dev:bench": "yarn workspace bench dev",
+    "dev:smoke": "yarn workspace webgpu-ort-smoke dev",
+    "examples": "node tools/examples.mjs",
     "test": "yarn workspaces foreach -A -t run test",
     "build": "yarn workspaces foreach -A -t run build",
     "change": "yarn changeset",
