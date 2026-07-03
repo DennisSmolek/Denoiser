@@ -68,6 +68,7 @@ export class Denoiser {
   private wasmPaths?: string;
   private graphCapture = false;
   private batch?: number;
+  private maxRunPixels?: number;
 
   stats: Record<string, number | string> = {};
   private timers: Record<string, number> = {};
@@ -77,6 +78,7 @@ export class Denoiser {
     this.wasmPaths = opts.wasmPaths;
     this.graphCapture = opts.graphCapture ?? false;
     this.batch = opts.batch;
+    this.maxRunPixels = opts.maxRunPixels;
     if (opts.precision) this.models.precision = opts.precision;
     if (this.debugging) console.log('%c Denoiser initialized (WebGPU/ORT)', 'background: #d66b00; color: white;');
   }
@@ -137,7 +139,7 @@ export class Denoiser {
     const create = async () =>
       DenoiseEngine.create(await this.models.get(name), {
         channels, wasmPaths: this.wasmPaths, graphCapture: this.graphCapture,
-        batch: this.batch, precision: this.models.precision,
+        batch: this.batch, precision: this.models.precision, maxRunPixels: this.maxRunPixels,
       });
     // Create the NEW engine before disposing the old: releasing the last ORT
     // session destroys the shared GPUDevice (taking three.js and any canvas

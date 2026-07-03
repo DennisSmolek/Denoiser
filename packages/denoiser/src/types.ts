@@ -38,4 +38,6 @@ export interface DenoiserOptions {
   graphCapture?: boolean;
   /** Tiles per model run (default 8). Higher = fewer sync points, more GPU memory. */
   batch?: number;
+  /** Per-run pixel budget (tileW*tileH*batch); images above it tile instead of running whole-frame. Default 2048*1152. */
+  maxRunPixels?: number;
 }

@@ -199,8 +199,12 @@ old CPU path 68.8ms (float readback + JS tonemap + LDR model) → **zero-copy GP
 ### What we learned vs the plan
 - **Phase 1 (graph capture): shipped opt-in, default OFF.** Zero measured gain — the
   loop was GPU-throughput-bound, not dispatch-bound — and ORT 1.27.0 *crashes* in its
-  capture buffer manager at 1080p/45 tiles (`createBindGroup: Required member is
-  undefined`; 720p fine; fresh session reproduces). Revisit on a future ORT.
+  capture buffer manager (`createBindGroup: Required member is undefined`).
+  Root-caused later (standalone repro: `ort-webgpu-graphcapture-repro` repo): captured
+  sessions die after ~150–250 CUMULATIVE replays, regardless of GPU syncs, interleaved
+  submits, or buffer sizes. (The original "1080p crashes, 720p doesn't" was just
+  45×5=225 replays crossing the threshold vs 24×6=144 staying under.) Revisit on a
+  future ORT.
 - **Phase 2 (batching): correct but small win** (720p 98.7→89.2ms; bit-identical
   output batch=1 vs 8). Its real value was the dynamic-dim models + per-geometry
   session machinery that Phase 4 is built on. Padded final batches *regressed* small

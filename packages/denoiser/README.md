@@ -122,8 +122,9 @@ Orientation: WebGPU render targets read bottom-up. Either set `flipInputY`
 display it upright — don't set both.
 
 `graphCapture` is opt-in and off by default: it measured no gain (the workload
-is GPU-bound) and onnxruntime-web 1.27 crashes when many captured replays are
-enqueued without a GPU sync (fine in whole-frame mode, unstable when tiling).
+is GPU-bound) and onnxruntime-web 1.27 captured sessions crash after roughly
+150–250 cumulative replays regardless of GPU syncs — unusable for live loops
+(standalone reproduction: the `ort-webgpu-graphcapture-repro` repo).
 
 ## Models / weights
 

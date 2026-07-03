@@ -34,11 +34,12 @@ export interface EngineOptions {
   maxRunPixels?: number;
   wasmPaths?: string;
   /**
-   * Opt-in WebGPU graph capture. Measured ~0 gain here (the tile loop is
-   * GPU-bound, not dispatch-bound) and onnxruntime-web 1.27.0 crashes inside
-   * its capture buffer manager at larger tile counts (createBindGroup:
-   * "Required member is undefined", reproduced at 1080p/45 tiles while
-   * 720p/24 tiles works). Off by default until upstream stabilizes.
+   * Opt-in WebGPU graph capture. Measured ~0 gain here (the workload is
+   * GPU-bound, not dispatch-bound) and onnxruntime-web 1.27.0 captured
+   * sessions crash after ~150-250 CUMULATIVE replays (createBindGroup:
+   * "Required member is undefined" in ORT's capture buffer manager; GPU
+   * syncs don't prevent it — standalone repro in the
+   * ort-webgpu-graphcapture-repro repo). Off by default until upstream fixes.
    */
   graphCapture?: boolean;
 }
