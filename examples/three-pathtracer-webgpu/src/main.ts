@@ -7,6 +7,7 @@
 import * as THREE from 'three/webgpu';
 import { mrt, diffuseColor, normalView, texture } from 'three/tsl';
 import { fsr1 } from 'three/addons/tsl/display/FSR1Node.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { WebGPUPathTracer } from 'three-gpu-pathtracer/webgpu';
 import { GradientEquirectTexture } from 'three-gpu-pathtracer/src/textures/GradientEquirectTexture.js';
 import { Denoiser } from 'denoiser';
@@ -120,6 +121,19 @@ async function main() {
   pathTracer.renderDelay = 0;
   pathTracer.setScene(scene, camera);
   log('path tracer initialized; accumulating samples...');
+
+  // Orbit the camera and watch the denoiser keep up — camera changes reset the
+  // accumulation and the live loop re-denoises as samples arrive. Aux mode
+  // re-rasterizes the G-buffer for the new view automatically.
+  const controls = new OrbitControls(camera, canvas);
+  controls.target.set(0, 0.5, 0);
+  controls.update(); // BEFORE attaching the listener — the initial update fires
+  // 'change', and poking pathTracer.updateCamera() mid-setup wedges the tracer
+  // (same fragile-init family as its setSize/renderScale bugs).
+  controls.addEventListener('change', () => {
+    pathTracer.updateCamera();
+    gbufferRendered = false; // aux G-buffer is view-dependent
+  });
 
   // Cap accumulation so the denoiser has noise to work with (modern GPUs blow past
   // hundreds of samples otherwise). Editable live; changing it restarts accumulation.
