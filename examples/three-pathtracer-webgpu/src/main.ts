@@ -200,6 +200,21 @@ async function main() {
   const applyFade = () => { overlayCanvas.style.transition = `opacity ${Math.max(0, parseInt(fadeInput.value, 10) || 0)}ms ease`; };
   fadeInput.addEventListener('change', applyFade);
   applyFade();
+  // rAF (and therefore the whole loop) suspends whenever the page is hidden —
+  // minimize, machine sleep, display off. Say so loudly instead of looking wedged.
+  document.addEventListener('visibilitychange', () => {
+    log(document.hidden
+      ? 'PAUSED — page hidden (rAF suspended: minimize / sleep / display off)'
+      : 'resumed — page visible again');
+  });
+
+  // model quality: fast = the *_small networks, balanced = the base networks
+  const qualitySel = document.querySelector<HTMLSelectElement>('#quality')!;
+  qualitySel.addEventListener('change', () => {
+    denoiser.quality = qualitySel.value as 'fast' | 'balanced';
+    onAccumulationRestart(); // next denoise rebuilds with the new model
+  });
+
   let lastRestart = 0;
   function onAccumulationRestart() {
     lastRestart = performance.now();
