@@ -133,13 +133,14 @@ async function main() {
   controls.addEventListener('change', () => {
     pathTracer.updateCamera();
     gbufferRendered = false; // aux G-buffer is view-dependent
+    onAccumulationRestart();
   });
 
   // Cap accumulation so the denoiser has noise to work with (modern GPUs blow past
   // hundreds of samples otherwise). Editable live; changing it restarts accumulation.
   const maxSamplesInput = document.querySelector<HTMLInputElement>('#maxSamples')!;
   const maxSamples = () => Math.max(1, parseInt(maxSamplesInput.value, 10) || 6);
-  maxSamplesInput.addEventListener('change', () => pathTracer.reset());
+  maxSamplesInput.addEventListener('change', () => { pathTracer.reset(); onAccumulationRestart(); });
 
   // The path tracer's live GPUTexture (float, linear HDR). Fetched fresh each use —
   // the tracer can replace its output target on reset/resize.
@@ -187,6 +188,17 @@ async function main() {
   const reveal = document.querySelector<HTMLInputElement>('#reveal')!;
   const revealWrap = document.querySelector<HTMLDivElement>('#revealWrap')!;
   reveal.addEventListener('input', () => { revealWrap.style.width = `${reveal.value}%`; });
+
+  // Orbit-aware pacing: while the camera moves we abort any in-flight denoise,
+  // hold off firing new ones until the view settles, and fade the (stale)
+  // denoised overlay out; it fades back in with the first fresh result.
+  const SETTLE_MS = 150;
+  let lastRestart = 0;
+  function onAccumulationRestart() {
+    lastRestart = performance.now();
+    denoiser.abort(); // in-flight result is for the old view — drop it
+    overlayCanvas.style.opacity = '0';
+  }
   // the one-shot buttons swap models/settings — keep them exclusive with live mode
   liveCheckbox.addEventListener('change', () => {
     document.querySelectorAll<HTMLButtonElement>('#denoise, #denoiseGpu')
@@ -273,14 +285,17 @@ async function main() {
     if (fsrMode) {
       // resolve into the three-owned texture that feeds the fsr1() node
       denoiser.setOutputTexture(denoisedGpuTex);
-      await denoiser.execute();
+      const res = await denoiser.execute();
+      if (!res) return; // aborted mid-flight (camera moved)
       renderFsr?.(); // EASU/RCAS 2x -> compare overlay
     } else {
       // engine-owned rgba8 texture, blitted straight onto the compare overlay
       denoiser.setOutputTexture(undefined);
-      const outTex = (await denoiser.execute()) as GPUTexture;
+      const outTex = (await denoiser.execute()) as GPUTexture | undefined;
+      if (!outTex) return; // aborted mid-flight (camera moved)
       blitToOverlay(outTex);
     }
+    overlayCanvas.style.opacity = '1'; // fresh result for the current view
   }
 
   (window as unknown as Record<string, unknown>).__app = { pathTracer, renderer, denoiser, scene, camera };
@@ -288,7 +303,8 @@ async function main() {
   const loop = () => {
     const s = Math.floor(pathTracer.samples ?? 0);
     if (s < maxSamples()) pathTracer.renderSample();
-    if (liveCheckbox.checked && !denoisingBusy && s !== lastDenoisedSample) {
+    const settled = performance.now() - lastRestart > SETTLE_MS;
+    if (liveCheckbox.checked && !denoisingBusy && s !== lastDenoisedSample && settled && s > 0) {
       denoisingBusy = true;
       const t0 = performance.now();
       runLiveDenoise()
