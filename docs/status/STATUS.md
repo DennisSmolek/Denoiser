@@ -43,17 +43,20 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
 
 - [ ] Update `packages/denoiser/package.json` `homepage` + `bugs` (currently
       `github.com/dennissmolek/denoiser`) and `packages/denoiser-react` if kept.
-- [ ] **Models hosting: publish a separate models npm package** (e.g.
-      `@org/denoiser-models`) and point the default in
-      `packages/denoiser/src/weights.ts` at its jsDelivr URL, version-pinned.
-      Numbers: 46 files, 144 MB total (96 fp32 + 48 fp16); largest single file
-      14.7 MB (jsDelivr per-file limit is 50 MB — all fine); consumers only
-      fetch the one model they use (0.6–15 MB), never the set. Rationale &
-      alternatives (GitHub Releases works; jsDelivr's `gh/` endpoint doesn't
-      resolve LFS; OIDN upstream has no ONNX) are documented in the package
-      README's "Models / weights". The org CDN stays out of defaults (not for
-      third-party prod). Until published, the shipped default 404s — README
-      says self-host.
+- [ ] **Models hosting: GitHub Releases on the org repo** (decided after the
+      jsDelivr check): attach the 46 `.onnx` files (144 MB total, largest
+      14.7 MB) to a `models-v1` release tag and point the default in
+      `packages/denoiser/src/weights.ts` at
+      `github.com/<org>/denoiser/releases/download/models-v1/`. Why not npm:
+      bundling in the lib package = 144 MB per `npm install`, and jsDelivr
+      enforces a **~50 MB total-package limit**
+      ([jsdelivr#18294](https://github.com/jsdelivr/jsdelivr/issues/18294)) —
+      it would refuse the lib+models package AND makes even a dedicated
+      models package need a whitelist exception. Release assets: 2 GB/file,
+      CORS ok, version-pinned by tag, zero install cost. Consumers only fetch
+      the one model they use (0.6–15 MB). Org CDN stays out of defaults.
+      Until the release exists, the shipped default 404s — README says
+      self-host.
 - [ ] Git-LFS: `packages/denoiser/tzas/*.tza` are LFS-tracked — make sure the
       org repo has LFS enabled before pushing, and CI runners install `git-lfs`.
 - [ ] The `webgpu-pathtracer` dependency is a **git branch**

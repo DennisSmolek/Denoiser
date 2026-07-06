@@ -159,13 +159,17 @@ const denoiser = await Denoiser.create({ weightsUrl: '/models' });
 - **Production: host them yourself.** Copy the `models/` dir into your app's
   static assets (or your own CDN) and pin `weightsUrl`. Don't build a product
   on someone else's default URL.
-- **npm + jsDelivr/unpkg**: the models ship as a separate npm package so the
-  public npm CDNs can serve them version-pinned
-  (`https://cdn.jsdelivr.net/npm/<models-pkg>@<version>/<file>.onnx`); every
-  file is far under jsDelivr's 50 MB per-file limit. This is what the default
-  `weightsUrl` points at.
-- **GitHub Releases** also works (2 GB/file, CORS-enabled `objects.githubusercontent.com`)
-  if you prefer release assets over npm.
+- **GitHub Releases (the default scheme):** the models are attached as release
+  assets on this repo (a `models-v*` tag), fetched directly
+  (`github.com/<org>/denoiser/releases/download/models-v1/<file>.onnx`) —
+  2 GB/file, CORS-enabled, version-pinned by tag, and no npm install ever
+  downloads them.
+- **Why not inside the npm package** (asked often): `files: ["models/**"]`
+  would work as a URL scheme, but every `npm install` would pull the full
+  144 MB tarball, and jsDelivr enforces a **~50 MB total package limit**
+  ([jsdelivr#18294](https://github.com/jsdelivr/jsdelivr/issues/18294)) —
+  it would refuse to serve the package at all without a whitelist exception.
+  The same limit makes even a dedicated models npm package awkward.
 - **Not an option: OIDN's own repos.** Upstream publishes `.tza` (their own
   format, via git-LFS) — no ONNX exists upstream, and the runtime deliberately
   has no TZA parser. OIDN's repos are the *source* for the offline converter
