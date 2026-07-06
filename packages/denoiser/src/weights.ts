@@ -8,7 +8,7 @@ export class Models {
   /** Subdirectory under the site root (used when `url` is unset). */
   path?: string;
   /** Remote source for the models. */
-  url = 'https://cdn.jsdelivr.net/npm/denoiser/models';
+  url = 'https://cdn.jsdelivr.net/gh/pmndrs/denoiser-weights@models-v1/models';
   /** fp32 (default) or fp16 (smaller/faster, needs the shader-f16 feature). */
   precision: 'fp32' | 'fp16' = 'fp32';
 

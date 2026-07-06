@@ -162,7 +162,7 @@ const denoiser = await Denoiser.create({ weightsUrl: '/models' });
 - **Default scheme: plain git + jsDelivr's GitHub endpoint.** The models are
   committed as ordinary git blobs (NOT LFS — jsDelivr can't resolve LFS
   pointers) in a weights branch/repo and served version-pinned from
-  `https://cdn.jsdelivr.net/gh/<org>/<repo>@<tag>/models/<file>.onnx`.
+  `https://cdn.jsdelivr.net/gh/pmndrs/denoiser-weights@models-v1/models/<file>.onnx`.
   Verified: `access-control-allow-origin: *`, range requests, multi-provider
   CDN. Per-file cap is 20–50 MB depending on report — our largest file is
   14.7 MB, under even the stricter figure.

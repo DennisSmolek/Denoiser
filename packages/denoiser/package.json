@@ -16,9 +16,9 @@
         "Dennis Smolek"
     ],
     "license": "MIT",
-    "homepage": "https://github.com/dennissmolek/denoiser",
+    "homepage": "https://github.com/pmndrs/denoiser",
     "bugs": {
-        "url": "https://github.com/dennissmolek/denoiser/issues"
+        "url": "https://github.com/pmndrs/denoiser/issues"
     },
     "main": "./dist/index.cjs",
     "module": "./dist/index.mjs",

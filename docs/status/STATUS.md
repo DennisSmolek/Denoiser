@@ -39,40 +39,35 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
 6. **Release engineering**: publish `2.0.0` (currently alpha) once the aux bug
    is fixed; changeset flow already in the repo.
 
-## Org-migration checklist (do these when moving the repo)
+## Org-migration checklist (executed 2026-07-06 → pmndrs)
 
-- [ ] Update `packages/denoiser/package.json` `homepage` + `bugs` (currently
-      `github.com/dennissmolek/denoiser`) and `packages/denoiser-react` if kept.
-- [ ] **Models hosting: plain-git blobs + jsDelivr `gh/` endpoint** (final,
-      after curl-verifying every option — matrix in the package README):
-      commit the 46 `.onnx` files (144 MB, largest 14.7 MB, NO LFS) either to
-      a tiny sibling `denoiser-weights` repo or an orphan `models` branch of
-      the org repo, tag it `models-v1`, and point the default in
-      `packages/denoiser/src/weights.ts` at
-      `https://cdn.jsdelivr.net/gh/<org>/<repo>@models-v1/models/`.
-      Trade-off: a sibling repo keeps 144 MB out of every clone of the main
-      repo (recommended); an orphan branch avoids a second repo but full
-      clones fetch it. Verified dead ends: GitHub **Releases assets send no
-      CORS headers** (browser fetch fails — do not revisit); npm bundling =
-      install bloat + jsDelivr's ~50 MB total-package cap; raw.githubusercontent
-      is dev-only (5-min cache). GitHub Pages is the verified backup (CORS ok,
-      144 MB fits). Until hosted, the shipped default 404s — README says
-      self-host.
-- [ ] Git-LFS: `packages/denoiser/tzas/*.tza` are LFS-tracked — make sure the
-      org repo has LFS enabled before pushing, and CI runners install `git-lfs`.
+- [x] **Migrated to `pmndrs/denoiser`.** All branches pushed (`main` = full
+      current work, `perf-v2`, `feat-v2`, `kernel-spike`); LFS objects verified
+      transferred (media URL serves real binaries). Personal repo
+      (`DennisSmolek/Denoiser`) retains a full backup of every branch.
+- [x] **Models hosted: `pmndrs/denoiser-weights`** — 46 `.onnx` (144 MB) as
+      plain git blobs (no LFS), tag `models-v1`, default `weightsUrl` in
+      `weights.ts` points at
+      `https://cdn.jsdelivr.net/gh/pmndrs/denoiser-weights@models-v1/models`.
+      **Verified live**: CORS `*`, range requests, byte-identical full
+      downloads (jsDelivr transparently gzips fp32 models ~40%). Regeneration
+      + retag policy documented in that repo's README. Verified dead ends
+      (do not revisit): GitHub **Releases assets send no CORS headers**;
+      npm bundling = install bloat + jsDelivr's ~50 MB total-package cap;
+      raw.githubusercontent is dev-only. GitHub Pages is the verified backup.
+- [x] `homepage`/`bugs` → `github.com/pmndrs/denoiser` in both packages.
+- [x] Git-LFS verified on the org repo (tzas served as real content). CI
+      runners will still need `git-lfs` installed.
 - [ ] The `webgpu-pathtracer` dependency is a **git branch**
       (`github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer`) — pin to a
       commit SHA before org CI depends on it, and watch for its npm release.
 - [ ] CI: no workflows exist yet. Minimum useful set: `yarn build` +
       `tsc --noEmit` across workspaces, and the Python converter's
       `verify_parity.py` (pure CPU, runs headless).
-- [x] ~~`/examples` gitignore~~ — fixed: the ignore line is removed; example
-      sources are tracked normally (node_modules/dist stay ignored globally,
-      harness `dumps/` dirs ignored explicitly).
-- [ ] Branches: `feat-v2` (migration) and `perf-v2` (perf + v2 API, current) —
-      squash-merge or fast-forward into the org's `main`.
-- [ ] Memory/handoff: this docs tree is the source of truth; the maintainer's
-      local Claude memory also points here.
+- [ ] `packages/denoiser-react`: still on the old v1 API — decide port or drop
+      before publishing v2.
+- [x] ~~`/examples` gitignore~~ — fixed: example sources tracked normally.
+- [x] Memory/handoff: this docs tree is the source of truth.
 
 ## Known issues / limitations (beyond next-actions)
 
