@@ -1,5 +1,10 @@
 # WebGPU + ONNX Migration — Progress & Handoff
 
+> **Historical record.** The migration completed; current state and next
+> actions live in [`STATUS.md`](STATUS.md). The TODO section at the bottom is
+> superseded (2c/G-buffer aux, zero-copy IO, and the docs/example cleanup all
+> landed on `perf-v2`). Kept for the architecture notes and gotchas.
+
 Branch: **`feat-v2`**. This documents the migration of the `denoiser` library off
 TensorFlow.js/WebGL onto a full-WebGPU stack (onnxruntime-web) plus the three.js
 r185 WebGPU path tracer example. Written as a resumable checkpoint.

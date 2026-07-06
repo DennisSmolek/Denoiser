@@ -7,7 +7,7 @@
 //                  into a planar [B,C,tile,tile] NCHW input in one dispatch
 //                  (workgroup z = batch slot). color/albedo normalized to [0,1]
 //                  (optionally sRGB->linear); normals encoded to [0,1] à la
-//                  upstream OIDN (docs/oidn-color-reference.md).
+//                  upstream OIDN (docs/specs/oidn-color-reference.md).
 //   accumulate   — blend ONE model-output tile (by batch slot) into accum +
 //                  weight buffers using the min-of-sigmoid overlap mask
 //                  (matches the old tiler.ts). Overlapping tiles must land in
@@ -18,7 +18,7 @@
 //
 // Layout is NCHW; channels is 3 (color), 6 (+albedo) or 9 (+albedo+normal).
 
-// OIDN's PU transfer function for HDR color (docs/oidn-color-reference.md):
+// OIDN's PU transfer function for HDR color (docs/specs/oidn-color-reference.md):
 // the network is trained on PU-encoded values — inputs go through
 // pu_forward(y * inputScale) * PU_NORM, outputs through
 // pu_inverse(x * PU_XMAX) / inputScale. inputScale comes from autoexposure
@@ -112,7 +112,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
   if (p.channels >= 9u) {
     // OIDN feeds the network normals ENCODED to [0,1] (clamp(n,-1,1)*0.5+0.5 —
-    // see docs/oidn-color-reference.md). RGBA8 bytes already hold that encoding;
+    // see docs/specs/oidn-color-reference.md). RGBA8 bytes already hold that encoding;
     // pad with 0.5 (the encoded zero-normal).
     var nrm = vec3<f32>(0.5);
     if (inside) { nrm = unpack4x8unorm(normal[sidx]).xyz; }

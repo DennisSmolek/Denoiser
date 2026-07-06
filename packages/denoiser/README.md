@@ -53,16 +53,24 @@ denoise progressively **while a path tracer accumulates**. See
 
 OIDN's aux-guided models sharply improve quality at low sample counts. Rasterize
 albedo (base color) and view-normals into float textures (e.g. a three.js MRT
-target) and add them — the matching model is selected automatically:
+target) and pass them with the call — the matching model is selected automatically:
 
 ```ts
-denoiser.setInputTexture('albedo', albedoGpuTexture); // [0,1] floats
-denoiser.setInputTexture('normal', normalGpuTexture); // [-1,1] floats
+await denoiser.denoiseTextures({
+  color,
+  albedo: albedoGpuTexture, // [0,1] floats
+  normal: normalGpuTexture, // [-1,1] floats
+  hdr: true,
+});
 ```
 
-Rasterized aux is noise-free, so the `cleanAux` (`calb_cnrm`) models apply.
-CPU-side aux via `setInputData`/`setInputImage` works too (RGBA8; normals get
-mapped from [0,1] to [-1,1]).
+Rasterized aux is noise-free, so the `cleanAux` (`calb_cnrm`) models apply. The
+image path takes aux the same way: `denoiser.denoise(color, { albedo, normal })`
+(RGBA8; normals encoded [0,1] are mapped to [-1,1] internally).
+
+Full three.js walkthrough (unwrapping render targets, output-into-three,
+orientation, pitfalls): [`docs/guides/three-js-render-targets.md`](../../docs/guides/three-js-render-targets.md).
+Coming from the 0.x TFJS API: [`docs/guides/migrating-from-v1.md`](../../docs/guides/migrating-from-v1.md).
 
 ## How it runs fast
 
@@ -72,7 +80,7 @@ mapped from [0,1] to [-1,1]).
 - **Adaptive tiling**: bigger images fall back to 1024/512/256 tiles (batched
   per run, sigmoid overlap blending) based on a pixel budget and the device's
   buffer limits.
-- **fp16 end-to-end**: `new Denoiser({ precision: 'fp16' })` uses fp16 models,
+- **fp16 end-to-end**: `Denoiser.create({ precision: 'fp16' })` uses fp16 models,
   tensors, and WGSL IO (needs the `shader-f16` feature; falls back to fp32).
   ~15% faster, PSNR vs fp32 ≈ 53dB (visually identical).
 - Everything between input and output stays on the GPU.

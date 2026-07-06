@@ -12,32 +12,44 @@ Images up to ~1080p denoise in a single model run — 512² in ~14 ms and 1080p 
 while a path tracer accumulates.
 
 > **v2 note:** the library was rewritten from TensorFlow.js (abandoned) to
-> WebGPU + onnxruntime-web. The high-level API is largely compatible; the
-> WebGL/TFJS backends are gone.
+> WebGPU + onnxruntime-web, with a new **stateless per-call API** (clean break).
+> Coming from 0.x? See the
+> [migration guide](docs/guides/migrating-from-v1.md).
 
 ### Basic example
 
 ```ts
 import { Denoiser } from "denoiser";
 
-const denoiser = new Denoiser();
-denoiser.setCanvas(document.getElementById("output-canvas"));
-
-async function doDenoise() {
-  await denoiser.execute(document.getElementById("noisey-img"));
-}
+const denoiser = await Denoiser.create();
+const clean = await denoiser.denoise(document.getElementById("noisy-img")); // ImageData
+canvas.getContext("2d").putImageData(clean, 0, 0);
 ```
 
 ### Zero-copy GPU pipeline (three.js)
 
-Share one `GPUDevice` between your renderer and the denoiser, feed a float
-render target in via `setInputTexture`, and resolve straight into a texture you
-own via `setOutputTexture` — pathtracer → denoiser → render target, no CPU
-pixels. Aux inputs (albedo + view-normals from an MRT pass) select OIDN's
-higher-quality guided models automatically.
+Create the denoiser first (onnxruntime-web owns the `GPUDevice`), hand
+`denoiser.device` to your `WebGPURenderer`, and run render targets straight
+through — pathtracer → denoiser → render target, no CPU pixels:
 
-**Full API documentation: [`packages/denoiser/README.md`](packages/denoiser/README.md)** —
-including the important notes on device sharing/lifetime with onnxruntime-web.
+```ts
+const denoiser = await Denoiser.create({ precision: "fp16" });
+const renderer = new THREE.WebGPURenderer({ device: denoiser.device });
+
+const out = await denoiser.denoiseTextures({
+  color: tracerGpuTexture,   // float, linear HDR
+  albedo, normal,            // optional MRT G-buffer -> guided model auto-selected
+  hdr: true,
+  inputFlipY: true,          // render targets are bottom-up
+  output: myStorageTexture,  // optional: resolve into a texture three.js samples
+});
+```
+
+**Docs:**
+- [`packages/denoiser/README.md`](packages/denoiser/README.md) — install, API sketch, device-lifetime rules.
+- [`docs/guides/three-js-render-targets.md`](docs/guides/three-js-render-targets.md) — render targets in/out, full parameter reference, pitfalls.
+- [`docs/guides/migrating-from-v1.md`](docs/guides/migrating-from-v1.md) — 0.x → 2.x mapping.
+- [`docs/`](docs/README.md) — index: status/next actions, specs, perf results.
 
 ### Examples (`/examples`)
 
@@ -54,7 +66,8 @@ including the important notes on device sharing/lifetime with onnxruntime-web.
 - `tools/onnx-convert` — Python tooling that builds the ONNX U-Nets directly
   from OIDN `.tza` weights (no PyTorch). Models ship fp32 + fp16 with dynamic
   batch/height/width dims.
-- `perf-plan.md` — the performance work: plan, phases, measured results.
+- `docs/` — guides (three.js interop, v1→v2 migration), status/next actions,
+  specs, and the perf plan + measured results.
 
 ### Development
 
