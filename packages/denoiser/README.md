@@ -136,9 +136,40 @@ is GPU-bound) and onnxruntime-web 1.27 captured sessions crash after roughly
 
 ## Models / weights
 
-The converted `.onnx` models (fp32 + fp16, all OIDN RT + lightmap variants) load
-from a CDN by default; override with `denoiser.weightsUrl = '/models'`. To
-regenerate from OIDN `.tza` weights: `tools/onnx-convert` (no PyTorch needed).
+The denoiser loads one converted `.onnx` model per configuration (quality ×
+hdr × aux), fetched individually — a page never downloads the full set:
+
+| variant | fp16 | fp32 |
+|---|---|---|
+| `*_small` (quality: fast) | ~0.6 MB | ~1.3 MB |
+| base (balanced) | ~1.8 MB | ~3.6 MB |
+| `*_large` (high) | ~7.3 MB | ~14.7 MB |
+
+Full set (all RT + lightmap variants, both precisions): 46 files, ~144 MB
+(96 MB fp32 + 48 MB fp16).
+
+### Hosting them
+
+Point `weightsUrl` at wherever the files live — it's just static hosting:
+
+```ts
+const denoiser = await Denoiser.create({ weightsUrl: '/models' });
+```
+
+- **Production: host them yourself.** Copy the `models/` dir into your app's
+  static assets (or your own CDN) and pin `weightsUrl`. Don't build a product
+  on someone else's default URL.
+- **npm + jsDelivr/unpkg**: the models ship as a separate npm package so the
+  public npm CDNs can serve them version-pinned
+  (`https://cdn.jsdelivr.net/npm/<models-pkg>@<version>/<file>.onnx`); every
+  file is far under jsDelivr's 50 MB per-file limit. This is what the default
+  `weightsUrl` points at.
+- **GitHub Releases** also works (2 GB/file, CORS-enabled `objects.githubusercontent.com`)
+  if you prefer release assets over npm.
+- **Not an option: OIDN's own repos.** Upstream publishes `.tza` (their own
+  format, via git-LFS) — no ONNX exists upstream, and the runtime deliberately
+  has no TZA parser. OIDN's repos are the *source* for the offline converter
+  only: regenerate any time with `tools/onnx-convert` (Python, no PyTorch).
 
 ## License
 

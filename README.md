@@ -65,7 +65,9 @@ const out = await denoiser.denoiseTextures({
 - `packages/denoiser` — the library (npm: `denoiser`).
 - `tools/onnx-convert` — Python tooling that builds the ONNX U-Nets directly
   from OIDN `.tza` weights (no PyTorch). Models ship fp32 + fp16 with dynamic
-  batch/height/width dims.
+  batch/height/width dims. They are hosted separately from the library (a page
+  only fetches the one model it uses, 0.6–15 MB) — see
+  [Hosting the models](packages/denoiser/README.md#models--weights).
 - `docs/` — guides (three.js interop, v1→v2 migration), status/next actions,
   specs, and the perf plan + measured results.
 

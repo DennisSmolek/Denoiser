@@ -31,7 +31,6 @@ node_modules/
 # Ignore OS-specific files
 .DS_Store
 Thumbs.db
-/examples
 
 # ONNX models — large, hosted on CDN (like tzas/), not committed
 packages/denoiser/models/
@@ -40,3 +39,6 @@ packages/denoiser/models/
 tools/**/.venv/
 __pycache__/
 *.pyc
+
+# Native-compare harness dumps (raw GPU frame dumps)
+examples/*/dumps/
