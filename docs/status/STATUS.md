@@ -43,19 +43,20 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
 
 - [ ] Update `packages/denoiser/package.json` `homepage` + `bugs` (currently
       `github.com/dennissmolek/denoiser`) and `packages/denoiser-react` if kept.
-- [ ] **Models hosting: GitHub Releases on the org repo** (decided after the
-      jsDelivr check): attach the 46 `.onnx` files (144 MB total, largest
-      14.7 MB) to a `models-v1` release tag and point the default in
+- [ ] **Models hosting: plain-git blobs + jsDelivr `gh/` endpoint** (final,
+      after curl-verifying every option — matrix in the package README):
+      commit the 46 `.onnx` files (144 MB, largest 14.7 MB, NO LFS) either to
+      a tiny sibling `denoiser-weights` repo or an orphan `models` branch of
+      the org repo, tag it `models-v1`, and point the default in
       `packages/denoiser/src/weights.ts` at
-      `github.com/<org>/denoiser/releases/download/models-v1/`. Why not npm:
-      bundling in the lib package = 144 MB per `npm install`, and jsDelivr
-      enforces a **~50 MB total-package limit**
-      ([jsdelivr#18294](https://github.com/jsdelivr/jsdelivr/issues/18294)) —
-      it would refuse the lib+models package AND makes even a dedicated
-      models package need a whitelist exception. Release assets: 2 GB/file,
-      CORS ok, version-pinned by tag, zero install cost. Consumers only fetch
-      the one model they use (0.6–15 MB). Org CDN stays out of defaults.
-      Until the release exists, the shipped default 404s — README says
+      `https://cdn.jsdelivr.net/gh/<org>/<repo>@models-v1/models/`.
+      Trade-off: a sibling repo keeps 144 MB out of every clone of the main
+      repo (recommended); an orphan branch avoids a second repo but full
+      clones fetch it. Verified dead ends: GitHub **Releases assets send no
+      CORS headers** (browser fetch fails — do not revisit); npm bundling =
+      install bloat + jsDelivr's ~50 MB total-package cap; raw.githubusercontent
+      is dev-only (5-min cache). GitHub Pages is the verified backup (CORS ok,
+      144 MB fits). Until hosted, the shipped default 404s — README says
       self-host.
 - [ ] Git-LFS: `packages/denoiser/tzas/*.tza` are LFS-tracked — make sure the
       org repo has LFS enabled before pushing, and CI runners install `git-lfs`.

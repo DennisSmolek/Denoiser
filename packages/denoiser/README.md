@@ -159,17 +159,28 @@ const denoiser = await Denoiser.create({ weightsUrl: '/models' });
 - **Production: host them yourself.** Copy the `models/` dir into your app's
   static assets (or your own CDN) and pin `weightsUrl`. Don't build a product
   on someone else's default URL.
-- **GitHub Releases (the default scheme):** the models are attached as release
-  assets on this repo (a `models-v*` tag), fetched directly
-  (`github.com/<org>/denoiser/releases/download/models-v1/<file>.onnx`) —
-  2 GB/file, CORS-enabled, version-pinned by tag, and no npm install ever
-  downloads them.
-- **Why not inside the npm package** (asked often): `files: ["models/**"]`
-  would work as a URL scheme, but every `npm install` would pull the full
-  144 MB tarball, and jsDelivr enforces a **~50 MB total package limit**
-  ([jsdelivr#18294](https://github.com/jsdelivr/jsdelivr/issues/18294)) —
-  it would refuse to serve the package at all without a whitelist exception.
-  The same limit makes even a dedicated models npm package awkward.
+- **Default scheme: plain git + jsDelivr's GitHub endpoint.** The models are
+  committed as ordinary git blobs (NOT LFS — jsDelivr can't resolve LFS
+  pointers) in a weights branch/repo and served version-pinned from
+  `https://cdn.jsdelivr.net/gh/<org>/<repo>@<tag>/models/<file>.onnx`.
+  Verified: `access-control-allow-origin: *`, range requests, multi-provider
+  CDN. Per-file cap is 20–50 MB depending on report — our largest file is
+  14.7 MB, under even the stricter figure.
+- **GitHub Pages** also works (verified CORS `*`, Fastly-fronted; the 144 MB
+  set fits the 1 GB site limit) if you'd rather publish a branch than rely on
+  jsDelivr.
+- **What does NOT work — verified, so you don't re-litigate it:**
+  - **GitHub Releases assets**: no `access-control-allow-origin` on the
+    download path (`release-assets.githubusercontent.com`), even on GET with
+    an `Origin` — browser `fetch()` fails CORS. Fine for CLIs, useless as a
+    web default.
+  - **Models inside the npm package**: every `npm install` pulls the full
+    144 MB, and jsDelivr enforces a ~50 MB **total package** limit
+    ([jsdelivr#18294](https://github.com/jsdelivr/jsdelivr/issues/18294)) —
+    it would refuse the package outright. A dedicated models npm package hits
+    the same cap (whitelist-only).
+  - **`raw.githubusercontent.com`**: CORS is fine, but `cache-control:
+    max-age=300` and GitHub discourages hotlinking — dev fallback only.
 - **Not an option: OIDN's own repos.** Upstream publishes `.tza` (their own
   format, via git-LFS) — no ONNX exists upstream, and the runtime deliberately
   has no TZA parser. OIDN's repos are the *source* for the offline converter
