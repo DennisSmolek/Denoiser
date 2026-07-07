@@ -40,9 +40,16 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
    debug tooling (color/albedo/normal as the network sees them). Robustness note
    found en route: `denoiseTextures` silently falls back to color-only when the
    aux textures resolve to undefined — should warn/throw.
-2. **WGSL engine spike** (`docs/specs/wgsl-engine-proposal.md`): one fused
-   conv3×3+relu6 tiled kernel benchmarked against ORT's conv on the dominant
-   shapes. Go/no-go gate: ≥1.4×. Only after (or parallel to) the aux fix.
+2. **WGSL engine spike — DONE 2026-07-07: NO-GO.** Ran the full registry (9
+   kernels: naive, 3 tiled-smem f32, 3 tiled-f16, 2 fused-relu6) against a fair
+   gpu-buffer-IO ORT baseline on the 512² 64→64 3×3 shape (branch `kernel-spike`,
+   `experiments/wgsl-conv/SPIKE.md`). Best custom kernel ≈1.32× (fused-relu6-f16,
+   f16-precision); every **f32** tiled kernel ≤1.08× (parity with ORT). Under the
+   ≥1.4× gate. Confirms the native-Metal gap is hardware matrix units
+   (`simdgroup_matrix`), not orchestration — unreachable from WGSL until the
+   subgroup-matrix proposal ships. Revisit then, or explore int8/DP4a with
+   offline quantization. (1080p not measurable headless — ~2 GB of live buffers
+   hangs the GPU; 512² decides the gate.)
 3. **WebNN track** — deferred pending research (plan sketch in `perf-plan.md`).
    Re-evaluate when the WebNN EP matures / NPU targets matter.
 4. **OIDN 2.x engine investigation** (user request): weights are byte-identical
