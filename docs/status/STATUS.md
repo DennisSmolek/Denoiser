@@ -1,6 +1,6 @@
 # Project status & next actions
 
-_Last updated: 2026-07-06 (branch `perf-v2`, pre-org-migration checkpoint)._
+_Last updated: 2026-07-07 (branch `main`; `perf-v2`/`feat-v2` fully merged)._
 
 The living "where are we" doc. History lives in [`MIGRATION_PROGRESS.md`](MIGRATION_PROGRESS.md)
 (the TFJS→WebGPU/ONNX migration) and [`perf-plan.md`](perf-plan.md) (perf phases
@@ -26,6 +26,14 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
    diff our aux output against `native_aux.pfm` on the same inputs, then bisect
    the WGSL color pipeline (PU/autoexposure/normal encode order —
    `docs/specs/oidn-color-reference.md`).
+   _2026-07-07 progress (example-side, in `examples/ldraw-eiffel`):_ fixed three
+   aux-generation bugs — env-background normals were a garbage gradient (OIDN
+   wants normal=0 for env; G-buffer is now split albedo/normal passes),
+   transparent surfaces alpha-blended their normals (normal pass now forces
+   first-hit), and albedo could exceed [0,1] from HDR env colors (engine now
+   clamps, `ort/wgsl.ts`). That example also has input-view debug tooling
+   (color/albedo/normal exactly as the network sees them) — use it for the
+   engine-side bisect that remains.
 2. **WGSL engine spike** (`docs/specs/wgsl-engine-proposal.md`): one fused
    conv3×3+relu6 tiled kernel benchmarked against ORT's conv on the dominant
    shapes. Go/no-go gate: ≥1.4×. Only after (or parallel to) the aux fix.

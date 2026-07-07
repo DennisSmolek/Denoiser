@@ -1,0 +1,26 @@
+{
+  "name": "ldraw-eiffel",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "LDraw Eiffel Tower on a table: raster preview while orbiting, path trace + denoise at rest.",
+  "scripts": {
+    "dev": "vite --port 5177",
+    "build": "vite build",
+    "preview": "vite preview --port 5177",
+    "pack-model": "node tools/pack-ldraw.mjs public/assets/eiffel-tower.mpd public/assets/eiffel-tower_Packed.mpd"
+  },
+  "dependencies": {
+    "camera-controls": "^3.1.0",
+    "denoiser": "workspace:*",
+    "three": "^0.185.0",
+    "three-gpu-pathtracer": "github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer",
+    "three-mesh-bvh": "^0.9.9",
+    "xatlas-web": "^0.1.0"
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.27.0",
+    "typescript": "^5.5.2",
+    "vite": "^5.4.0"
+  }
+}

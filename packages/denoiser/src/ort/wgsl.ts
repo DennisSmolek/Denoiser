@@ -178,8 +178,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   dst[base + 2u * plane + didx] = IOType(col.z);
 
   if (p.channels >= 6u) {
+    // albedo is [0,1] by OIDN contract — clamp defensively (HDR env colors
+    // routed into an albedo G-buffer can exceed 1)
     var alb = vec3<f32>(0.0);
-    if (inside) { alb = textureLoad(albedo, coordAux, 0).xyz; }
+    if (inside) { alb = clamp(textureLoad(albedo, coordAux, 0).xyz, vec3<f32>(0.0), vec3<f32>(1.0)); }
     dst[base + 3u * plane + didx] = IOType(alb.x);
     dst[base + 4u * plane + didx] = IOType(alb.y);
     dst[base + 5u * plane + didx] = IOType(alb.z);

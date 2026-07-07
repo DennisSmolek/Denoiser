@@ -1613,6 +1613,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"camera-controls@npm:^3.1.0":
+  version: 3.1.2
+  resolution: "camera-controls@npm:3.1.2"
+  peerDependencies:
+    three: ">=0.126.1"
+  checksum: 10c0/2d42162efd6789e713332a72212819fb04b261f7babc45b5794cd902997e4a4826c9401b672ffab2e09f9808fc2b615d9154d67c57f38a7c90487d4cf5429655
+  languageName: node
+  linkType: hard
+
 "chalk@npm:^4.0.0, chalk@npm:^4.1.0":
   version: 4.1.2
   resolution: "chalk@npm:4.1.2"
@@ -2827,6 +2836,22 @@ __metadata:
   checksum: 10c0/aa52f3c5e18e16bb6324876bb8b59dd02acf782a4b789c7b2ae21107fab95fab3890ed448d4f8dba80ce05391eeac4bfabb4f02a20221342982f806fa2cf271e
   languageName: node
   linkType: hard
+
+"ldraw-eiffel@workspace:examples/ldraw-eiffel":
+  version: 0.0.0-use.local
+  resolution: "ldraw-eiffel@workspace:examples/ldraw-eiffel"
+  dependencies:
+    camera-controls: "npm:^3.1.0"
+    denoiser: "workspace:*"
+    onnxruntime-web: "npm:^1.27.0"
+    three: "npm:^0.185.0"
+    three-gpu-pathtracer: "github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer"
+    three-mesh-bvh: "npm:^0.9.9"
+    typescript: "npm:^5.5.2"
+    vite: "npm:^5.4.0"
+    xatlas-web: "npm:^0.1.0"
+  languageName: unknown
+  linkType: soft
 
 "levn@npm:^0.4.1":
   version: 0.4.1

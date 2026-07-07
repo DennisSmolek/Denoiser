@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LDraw Eiffel Tower — orbit / path trace / denoise</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #1a202c; color: #e2e8f0; }
+      label { margin-right: 1rem; }
+      pre { background: #2d3748; padding: 0.75rem; border-radius: 4px; min-height: 4rem; white-space: pre-wrap; }
+      /* raster/path-traced base canvas with the denoised result overlaid on top */
+      #stage { position: relative; width: 512px; height: 512px; border: 1px solid #4a5568; margin-top: 1rem; }
+      #stage canvas { position: absolute; top: 0; left: 0; width: 512px; height: 512px; }
+      #denoised { opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
+      /* compare slider clips the denoised overlay while it's visible */
+      #revealWrap { position: absolute; top: 0; left: 0; height: 100%; width: 100%; overflow: hidden; pointer-events: none; }
+      #reveal { position: absolute; left: 0; bottom: -30px; width: 100%; }
+      #mode { position: absolute; top: 6px; left: 6px; font-size: 11px; background: #0008;
+              padding: 2px 6px; border-radius: 3px; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <h1>LDraw Eiffel Tower — orbit (raster) → rest (path trace) → denoise</h1>
+    <label>max samples <input id="maxSamples" type="number" value="32" min="1" max="500" style="width:5rem"></label>
+    <label>quality <select id="quality"><option value="fast">fast (small)</option><option value="balanced" selected>balanced</option></select></label>
+    <label><input id="aux" type="checkbox" checked> G-buffer aux (albedo+normal)</label>
+    <label><input id="auxOpaque" type="checkbox"> opaque aux (no blending in G-buffer)</label>
+    <label><input id="progressive" type="checkbox"> denoise while accumulating</label>
+    <label>view <select id="viewMode">
+      <option value="result" selected>denoised result</option>
+      <option value="color">input: color</option>
+      <option value="albedo">input: albedo</option>
+      <option value="normal">input: normal</option>
+    </select></label>
+    <div id="stage">
+      <canvas id="view" width="512" height="512"></canvas>
+      <div id="revealWrap"><canvas id="denoised" width="512" height="512"></canvas></div>
+      <span id="mode">loading…</span>
+      <input id="reveal" type="range" min="0" max="100" value="100">
+    </div>
+    <p style="margin-top: 2.5rem; max-width: 60ch; color: #a0aec0;">
+      Drag to orbit — while the camera moves you see the plain raster render. Let go and the
+      path tracer accumulates samples; when it finishes (or on every sample, with the checkbox)
+      the denoised result fades in on top. The slider reveals raw vs denoised.
+    </p>
+    <p style="max-width: 60ch; color: #a0aec0;">
+      The <em>view</em> selector shows the denoiser's inputs exactly as the network sees them
+      (color with its flip applied; normals mapped [-1,1]&nbsp;→&nbsp;display). Append
+      <code>?inspector</code> to the URL for the three.js Inspector (render targets, params, profiler).
+    </p>
+    <pre id="status"></pre>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
