@@ -1,0 +1,3 @@
+# Root .gitignore has `*.js`; the spike harness IS source — re-include it.
+!kernels.js
+!main.js
