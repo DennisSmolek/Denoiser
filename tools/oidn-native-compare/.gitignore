@@ -1,0 +1,5 @@
+# scratch intermediates (regenerate via prepare.py / __dump*); keep the small PNGs
+*_balanced.pfm
+*_high.pfm
+ours_*.pfm
+ref_aux.pfm

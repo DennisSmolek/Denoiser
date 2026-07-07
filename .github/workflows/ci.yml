@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: build (denoiser)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Enable Corepack (yarn 4)
+        run: corepack enable
+      - name: Install
+        run: yarn install --immutable
+      # The shipping package: `build` runs `tsc` (typecheck) then rollup. Examples
+      # are untyped three-glue and need a git-branch dep + WebGPU, so they're not
+      # gated here. (No vitest suite exists yet — add a test job when one lands.)
+      - name: Build denoiser
+        run: yarn workspace denoiser build
+
+  parity:
+    name: ONNX converter parity (CPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true # the .tza weights are git-lfs objects
+      - name: Checkout LFS objects
+        run: git lfs checkout
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install converter deps
+        run: pip install -r tools/onnx-convert/requirements.txt
+      # NumPy reference of the U-Net graph vs the exported ONNX run through
+      # onnxruntime — validates the conversion is byte-faithful. Pure CPU.
+      - name: Verify parity
+        working-directory: tools/onnx-convert
+        run: python verify_parity.py

@@ -14,7 +14,7 @@
     "camera-controls": "^3.1.0",
     "denoiser": "workspace:*",
     "three": "^0.185.0",
-    "three-gpu-pathtracer": "github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer",
+    "three-gpu-pathtracer": "github:gkjohnson/three-gpu-pathtracer#7498576aefece4a0de5e32058f71280514138176",
     "three-mesh-bvh": "^0.9.9",
     "xatlas-web": "^0.1.0"
   },

@@ -86,3 +86,45 @@ execution. Metal's edge = MPSGraph fused kernels + Apple simdgroup_matrix
 (hardware MMA), the latter unreachable from WGSL until WebGPU's subgroup-matrix
 proposal ships. Realistic custom-WGSL capture: ~2-3x (base -> ~80-120ms);
 the remaining ~3-4x is hardware access, not code quality.
+
+## Root cause FOUND (2026-07-07): ORT WebGPU-EP miscomputes the 9-channel models
+
+Re-ran with today's tooling (`ref_infer.py` + new `__dumpOurOutputs` /
+tensor-dump probes). The aux speckle is **not our code** — it's an
+onnxruntime-web WebGPU execution-provider bug on the aux (9-channel) U-Nets.
+
+Chain of isolation (all on the demo scene @ 4 samples, fp32, whole-frame 512²):
+
+1. **Model + preprocessing are correct.** `ref_infer.py` runs our exact
+   converted `rt_hdr_calb_cnrm.onnx` through ORT **CPU-EP** with OIDN's color
+   pipeline (autoexposure + PU + normal encode). Result vs native = **54.2 dB**
+   (clean). So the ONNX file and our pre/post math are right.
+2. **The engine's input tensor is correct.** Dumped the engine's actual
+   9-channel NCHW input (`__dumpIO`); albedo + normal channels are
+   **byte-identical** to the Python reference (`same=0.0000`), color differs
+   only by per-session path-tracer noise. Packing, channel order, normal
+   `[-1,1]→[0,1]` encode, orientation — all correct.
+3. **The execution provider is wrong.** Fed that exact engine input tensor to
+   ORT **CPU-EP** and compared raw model outputs (`outNCHW`) to the engine's
+   **WebGPU-EP** output. Identical input, identical model file:
+
+   | model | WebGPU-EP vs CPU-EP mean\|Δ\| | output local-variance ratio (WebGPU/CPU) | WebGPU min |
+   |---|---|---|---|
+   | `rt_hdr_calb_cnrm` (base) | 0.0062 | **13.4×** noisier | −0.020 |
+   | `rt_hdr_calb_cnrm_small`  | 0.0061 | **21.7×** noisier | −0.010 |
+
+   WebGPU-EP output is 13–22× noisier and emits negatives where CPU is
+   positive. Color-only (`rt_hdr` 3-channel) is clean on WebGPU-EP (54 dB), so
+   the bug is specific to the **9-channel aux networks**. Graph capture is OFF
+   (default), so it's plain EP execution.
+
+**Repro:** `cdp-io.mjs`-style probe (see scratchpad / this session) dumps the
+engine's `nchwInput` + `outNCHW`; feed `nchwInput` to `ref_infer.py`'s session
+on CPU-EP and diff. `ref_infer.py <model>` runs any model on CPU-EP for the
+clean reference.
+
+**Next (resolution):** minimal ORT-web repro (feed one fixed 9-ch tensor to
+`rt_hdr_calb_cnrm` on webgpu vs wasm) → file upstream; test whether fp16 9-ch
+or a newer ORT build avoids it; interim workaround options (wasm EP for aux =
+slow; or find the offending op). This is the same shape as
+`ort-webgpu-graphcapture-repro`.

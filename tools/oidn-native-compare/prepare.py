@@ -51,3 +51,9 @@ normal = load("normal")
 write_pfm(os.path.join(outdir, "color.pfm"), color)
 write_pfm(os.path.join(outdir, "albedo.pfm"), np.clip(albedo, 0, 1))
 write_pfm(os.path.join(outdir, "normal.pfm"), np.clip(normal, -1, 1))
+
+# Our own denoised outputs (window.__dumpOurOutputs(): linear HDR, top-down),
+# for the web-vs-native diff. Optional — older dump sets won't have them.
+for name in ("ours_color", "ours_aux"):
+    if glob.glob(os.path.join(dumps, f"{name}.*")):
+        write_pfm(os.path.join(outdir, f"{name}.pfm"), load(name))

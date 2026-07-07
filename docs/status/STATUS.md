@@ -20,20 +20,26 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
 
 ## Next actions (priority order)
 
-1. **Aux speckle bug — ours, confirmed, open.** Native OIDN denoises our exact
-   dumped inputs perfectly clean (`tools/oidn-native-compare`, results in its
-   README), so the residual speckle in the web aux path is our bug. Next step:
-   diff our aux output against `native_aux.pfm` on the same inputs, then bisect
-   the WGSL color pipeline (PU/autoexposure/normal encode order —
-   `docs/specs/oidn-color-reference.md`).
-   _2026-07-07 progress (example-side, in `examples/ldraw-eiffel`):_ fixed three
-   aux-generation bugs — env-background normals were a garbage gradient (OIDN
-   wants normal=0 for env; G-buffer is now split albedo/normal passes),
-   transparent surfaces alpha-blended their normals (normal pass now forces
-   first-hit), and albedo could exceed [0,1] from HDR env colors (engine now
-   clamps, `ort/wgsl.ts`). That example also has input-view debug tooling
-   (color/albedo/normal exactly as the network sees them) — use it for the
-   engine-side bisect that remains.
+1. **Aux speckle bug — ROOT-CAUSED 2026-07-07: it's an onnxruntime-web
+   WebGPU-EP bug, NOT our code.** Full isolation chain + tables in
+   `tools/oidn-native-compare/README.md`. Summary: our converted
+   `rt_hdr_calb_cnrm.onnx` on ORT **CPU-EP** matches native to 54 dB; the
+   engine's 9-channel input tensor is byte-identical to that reference; but
+   feeding that exact tensor through the **WebGPU-EP** gives raw output 13–22×
+   noisier (both base and small aux models, with negative values where CPU is
+   positive). Color-only (3-ch) is clean on WebGPU-EP, so the bug is specific to
+   the **9-channel aux networks**; graph capture is off. Resolution path (open):
+   minimal ORT-web repro (fixed 9-ch tensor, webgpu vs wasm) → file upstream;
+   test fp16-9ch / newer ORT builds; interim workaround (wasm EP for aux, or
+   locate the offending op). Same shape as `ort-webgpu-graphcapture-repro`.
+   _Also landed 2026-07-07 (example-side, `examples/ldraw-eiffel`):_ three
+   aux-**generation** fixes independent of the above — split albedo/normal
+   G-buffer passes (env normals were a garbage gradient; OIDN wants normal=0 for
+   env), normal pass forces first-hit (no alpha-blended normals), and the engine
+   clamps albedo to [0,1] (`ort/wgsl.ts`) for HDR env colors. Plus input-view
+   debug tooling (color/albedo/normal as the network sees them). Robustness note
+   found en route: `denoiseTextures` silently falls back to color-only when the
+   aux textures resolve to undefined — should warn/throw.
 2. **WGSL engine spike** (`docs/specs/wgsl-engine-proposal.md`): one fused
    conv3×3+relu6 tiled kernel benchmarked against ORT's conv on the dominant
    shapes. Go/no-go gate: ≥1.4×. Only after (or parallel to) the aux fix.

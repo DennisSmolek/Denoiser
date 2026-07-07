@@ -333,6 +333,26 @@ async function main() {
     await dumpTex(backendGet(gbuffer.textures[1])!, 'normal', 8);
     log(`dumped color (${tracerTex.format}) + albedo/normal (rgba16float) to ./dumps`);
   };
+  // Dump OUR denoised outputs (linear HDR, no display transfer) on the same
+  // inputs, for the web-vs-native_aux diff in tools/oidn-native-compare.
+  (window as unknown as Record<string, unknown>).__dumpOurOutputs = async () => {
+    if (!gbufferRendered) renderGBuffer();
+    const tracerTex = getTracerTexture()!;
+    if (!denoisedGpuTex) throw new Error('denoised RT unavailable');
+    const common = {
+      color: tracerTex, hdr: true, inputFlipY: true, auxInputFlipY: false,
+      transfer: 'linear' as const, output: denoisedGpuTex,
+    };
+    await denoiser.denoiseTextures(common); // color-only (hdr model)
+    await dumpTex(denoisedGpuTex, 'ours_color', 8);
+    await denoiser.denoiseTextures({
+      ...common,
+      albedo: backendGet(gbuffer.textures[0])!,
+      normal: backendGet(gbuffer.textures[1])!,
+    }); // aux (hdr_calb_cnrm model)
+    await dumpTex(denoisedGpuTex, 'ours_aux', 8);
+    log('dumped ours_color + ours_aux (linear rgba16float) to ./dumps');
+  };
 
   const loop = () => {
     const s = Math.floor(pathTracer.samples ?? 0);

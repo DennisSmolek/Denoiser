@@ -2845,7 +2845,7 @@ __metadata:
     denoiser: "workspace:*"
     onnxruntime-web: "npm:^1.27.0"
     three: "npm:^0.185.0"
-    three-gpu-pathtracer: "github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer"
+    three-gpu-pathtracer: "github:gkjohnson/three-gpu-pathtracer#7498576aefece4a0de5e32058f71280514138176"
     three-mesh-bvh: "npm:^0.9.9"
     typescript: "npm:^5.5.2"
     vite: "npm:^5.4.0"
@@ -4281,7 +4281,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"three-gpu-pathtracer@github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer":
+"three-gpu-pathtracer@github:gkjohnson/three-gpu-pathtracer#7498576aefece4a0de5e32058f71280514138176":
   version: 0.0.24
   resolution: "three-gpu-pathtracer@https://github.com/gkjohnson/three-gpu-pathtracer.git#commit=7498576aefece4a0de5e32058f71280514138176"
   peerDependencies:
@@ -4308,7 +4308,7 @@ __metadata:
     denoiser: "workspace:*"
     onnxruntime-web: "npm:^1.27.0"
     three: "npm:^0.185.0"
-    three-gpu-pathtracer: "github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer"
+    three-gpu-pathtracer: "github:gkjohnson/three-gpu-pathtracer#7498576aefece4a0de5e32058f71280514138176"
     three-mesh-bvh: "npm:^0.9.9"
     typescript: "npm:^5.5.2"
     vite: "npm:^5.4.0"
