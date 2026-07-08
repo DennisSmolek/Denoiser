@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ORT-web aux bug — split-graph workaround test</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #1a202c; color: #e2e8f0; }
+      pre { background: #2d3748; padding: 1rem; border-radius: 4px; white-space: pre-wrap; line-height: 1.5; }
+      h1 { font-size: 1.1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Workaround test: compute enc_conv0 off-GPU, run the rest on ORT-WebGPU</h1>
+    <p>Does externalising the first conv actually clear the aux speckle? The tail
+       still ingests the raw 9ch input at <code>dec_conv1a</code> (concat_38 skip),
+       so this is not obviously enough. WASM = correctness oracle.</p>
+    <pre id="log"></pre>
+    <script type="module" src="./split.js"></script>
+  </body>
+</html>

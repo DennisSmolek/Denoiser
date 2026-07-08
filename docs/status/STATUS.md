@@ -29,12 +29,19 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
    fp32 + fp16 + base + small all affected. Points at ORT's WebGPU **Conv**
    first-layer input-channel reduction. (Earlier chain in
    `tools/oidn-native-compare/README.md` established our ONNX matches native to
-   54 dB on CPU-EP.) **Resolution path:** (a) file upstream (onnxruntime; related
-   #24070/#26734/#24442); (b) fp16 is NOT a workaround (tested); (c) best
-   GPU-side fix — compute the one buggy first conv (`enc_conv0`) in our own WGSL
-   (correct to 2e-6, see `kernel-spike`) and re-export the model to start at
-   layer 1; (d) try newer/nightly ORT-web; (e) meanwhile keep aux off by default,
-   mark experimental.
+   54 dB on CPU-EP.) **Isolated further 2026-07-08 (`tools/ort-webgpu-aux-split/`):**
+   the fault is specifically the **first Conv reducing the raw >3ch graph input**
+   — the U-Net also reduces the raw 9ch input mid-graph at `dec_conv1a` (the
+   `concat_38` skip, 105ch) and *that* conv is correct on WebGPU. **Workaround
+   now VERIFIED, not hypothetical:** split the graph at `enc_conv0`, run the whole
+   tail (incl. `dec_conv1a`) on WebGPU with a correct enc_conv0 output → **1.2e-6
+   vs reference** (full quality). **Resolution path:** (a) file upstream
+   (onnxruntime; related #24070/#26734/#24442); (b) fp16 is NOT a workaround
+   (tested); (c) **ship the fix** — compute `enc_conv0` (Conv 9→32 + relu6) in our
+   own WGSL (correct to 2e-6, see `kernel-spike`) and re-export the model to start
+   at `enc_conv1` with two inputs (feature map + raw `input` for the skip); build
+   for `rt_hdr_calb_cnrm` end-to-end first, then fan out; (d) try newer/nightly
+   ORT-web; (e) meanwhile keep aux off by default, mark experimental.
    _Also landed 2026-07-07 (example-side, `examples/ldraw-eiffel`):_ three
    aux-**generation** fixes independent of the above — split albedo/normal
    G-buffer passes (env normals were a garbage gradient; OIDN wants normal=0 for
