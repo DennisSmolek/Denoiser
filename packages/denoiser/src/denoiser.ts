@@ -173,14 +173,19 @@ export class Denoiser {
       cleanAux: sel.albedo && sel.normal, dirtyAux: false,
     });
     if (this.engine && this.activeModelName === name) return;
+    // Aux split-graph workaround: for 9ch cleanAux models, fetch a re-exported
+    // tail + enc_conv0 weights and run enc_conv0 in WGSL (dodges the ORT-web
+    // WebGPU Conv bug). The tail REPLACES the model bytes.
+    const split = await this.loadSplitArtifacts(name, channels);
     const create = async () =>
-      DenoiseEngine.create(await this.models.get(name), {
+      DenoiseEngine.create(split ? split.tailBytes : await this.models.get(name), {
         channels,
         wasmPaths: this.opts.wasmPaths,
         graphCapture: this.opts.graphCapture,
         batch: this.opts.batch,
         maxRunPixels: this.opts.maxRunPixels,
         precision: this.models.precision,
+        split: split?.engine,
       });
     const old = this.engine;
     try {
@@ -194,6 +199,40 @@ export class Denoiser {
     old?.destroy();
     this.activeModelName = name;
     this.device = this.engine.device;
+  }
+
+  /**
+   * Fetch the split-graph artifacts (tail model + enc_conv0 weights) for a
+   * cleanAux model when splitAux is on. Returns undefined otherwise. Artifacts
+   * live next to the model: `<name>.tail.onnx` and `<name>.enc0.bin` (f32 OIHW
+   * weights [COUT,channels,3,3] then bias [COUT]).
+   */
+  private async loadSplitArtifacts(name: string, channels: number): Promise<
+    { tailBytes: Uint8Array; engine: NonNullable<Parameters<typeof DenoiseEngine.create>[1]['split']> } | undefined
+  > {
+    if (!this.opts.splitAux || channels < 9) return undefined;
+    const m = this.models;
+    const base = m.url ? `${m.url}/${name}` : `/${m.path ?? 'models'}/${name}`;
+    const fetchBytes = async (url: string) => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`Denoiser: splitAux artifact ${url} (${r.status})`);
+      return r.arrayBuffer();
+    };
+    const [tail, encBuf] = await Promise.all([
+      fetchBytes(`${base}.tail.onnx`),
+      fetchBytes(`${base}.enc0.bin`),
+    ]);
+    const f = new Float32Array(encBuf);
+    // f = [COUT*channels*9 weights][COUT bias]  ->  len = COUT*(channels*9 + 1)
+    const cout = Math.round(f.length / (channels * 9 + 1));
+    return {
+      tailBytes: new Uint8Array(tail),
+      engine: {
+        encWeights: f.slice(0, cout * channels * 9),
+        encBias: f.slice(cout * channels * 9, cout * channels * 9 + cout),
+        encOutChannels: cout,
+      },
+    };
   }
 }
 
