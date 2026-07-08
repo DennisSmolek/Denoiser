@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ORT-web WebGPU vs WASM — OIDN 9ch aux repro</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #1a202c; color: #e2e8f0; }
+      pre { background: #2d3748; padding: 1rem; border-radius: 4px; white-space: pre-wrap; line-height: 1.5; }
+      h1 { font-size: 1.1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>onnxruntime-web: WebGPU EP vs WASM EP on the OIDN aux (9-channel) U-Net</h1>
+    <p>Same model, same fixed input, two execution providers. WASM (CPU) is the
+       reference. If WebGPU diverges, the defect is in ORT-web's WebGPU EP —
+       the denoiser library is not involved (vanilla sessions, CPU-array IO).</p>
+    <pre id="log"></pre>
+    <script type="module" src="./repro.js"></script>
+  </body>
+</html>

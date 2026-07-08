@@ -20,18 +20,21 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
 
 ## Next actions (priority order)
 
-1. **Aux speckle bug — ROOT-CAUSED 2026-07-07: it's an onnxruntime-web
-   WebGPU-EP bug, NOT our code.** Full isolation chain + tables in
-   `tools/oidn-native-compare/README.md`. Summary: our converted
-   `rt_hdr_calb_cnrm.onnx` on ORT **CPU-EP** matches native to 54 dB; the
-   engine's 9-channel input tensor is byte-identical to that reference; but
-   feeding that exact tensor through the **WebGPU-EP** gives raw output 13–22×
-   noisier (both base and small aux models, with negative values where CPU is
-   positive). Color-only (3-ch) is clean on WebGPU-EP, so the bug is specific to
-   the **9-channel aux networks**; graph capture is off. Resolution path (open):
-   minimal ORT-web repro (fixed 9-ch tensor, webgpu vs wasm) → file upstream;
-   test fp16-9ch / newer ORT builds; interim workaround (wasm EP for aux, or
-   locate the offending op). Same shape as `ort-webgpu-graphcapture-repro`.
+1. **Aux speckle bug — CONFIRMED upstream 2026-07-08: onnxruntime-web WebGPU-EP,
+   NOT our code.** Standalone repro in `tools/ort-webgpu-aux-repro/` (README =
+   the upstream bug report): **bare vanilla ORT-web sessions** (no denoiser code,
+   plain CPU-array IO), same fixed synthetic input, WebGPU vs WASM provider —
+   3-ch model matches to 9.5e-7, but 6-ch diverges (3.7e-2) and 9-ch diverges
+   more (1.1e-1). Error appears **above 3 input channels and scales with count**;
+   fp32 + fp16 + base + small all affected. Points at ORT's WebGPU **Conv**
+   first-layer input-channel reduction. (Earlier chain in
+   `tools/oidn-native-compare/README.md` established our ONNX matches native to
+   54 dB on CPU-EP.) **Resolution path:** (a) file upstream (onnxruntime; related
+   #24070/#26734/#24442); (b) fp16 is NOT a workaround (tested); (c) best
+   GPU-side fix — compute the one buggy first conv (`enc_conv0`) in our own WGSL
+   (correct to 2e-6, see `kernel-spike`) and re-export the model to start at
+   layer 1; (d) try newer/nightly ORT-web; (e) meanwhile keep aux off by default,
+   mark experimental.
    _Also landed 2026-07-07 (example-side, `examples/ldraw-eiffel`):_ three
    aux-**generation** fixes independent of the above — split albedo/normal
    G-buffer passes (env normals were a garbage gradient; OIDN wants normal=0 for

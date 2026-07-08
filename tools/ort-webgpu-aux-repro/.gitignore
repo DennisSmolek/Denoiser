@@ -1,0 +1,2 @@
+# root .gitignore has *.js; this repro IS source
+!repro.js
