@@ -88,6 +88,10 @@ async function main() {
   // the 9ch cleanAux models — compare against ?split=0 to see the ORT-web bug.
   const appParams = new URLSearchParams(location.search);
   const splitAux = appParams.has('split') && appParams.get('split') !== '0';
+  // ?headless=1 skips the compare-overlay WebGPU canvas (a second getContext
+  // ('webgpu')+configure that stalls in headless Chrome). __captureAux() reads
+  // the denoise output texture directly and doesn't need the overlay.
+  const headless = appParams.has('headless');
   const denoiser = await Denoiser.create({ weightsUrl: '/models', splitAux });
   const device = denoiser.device;
   log(`denoiser ready (splitAux: ${splitAux}); sharing GPUDevice with three.js: ${device ? 'yes' : 'no'}`);
@@ -166,20 +170,22 @@ async function main() {
   denoisedTex.generateMipmaps = false;
   denoisedTex.colorSpace = fsrMode ? THREE.NoColorSpace : THREE.LinearSRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.initTexture(denoisedTex);
-  const denoisedGpuTex = (renderer.backend as unknown as {
+  if (!headless) renderer.initTexture(denoisedTex);
+  const denoisedGpuTex = headless ? undefined : (renderer.backend as unknown as {
     get: (o: unknown) => { texture?: GPUTexture };
   }).get(denoisedTex)?.texture;
   liveCheckbox.disabled = !denoisedGpuTex;
 
   // The compare overlay canvas: denoised output blitted over the raw path-traced
-  // view, revealed by the slider (pure HTML/CSS clipping).
+  // view, revealed by the slider (pure HTML/CSS clipping). Skipped in headless
+  // mode (its getContext('webgpu')+configure stalls without a compositor).
   const overlayCanvas = document.querySelector<HTMLCanvasElement>('#outGpu')!;
   const OVERLAY = fsrMode ? 1024 : 512; // FSR mode blits its 2x-upscaled result
   overlayCanvas.width = overlayCanvas.height = OVERLAY;
-  const overlayCtx = overlayCanvas.getContext('webgpu')!;
-  overlayCtx.configure({ device, format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  const overlayCtx = headless ? undefined : overlayCanvas.getContext('webgpu');
+  overlayCtx?.configure({ device, format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   const blitToOverlay = (tex: GPUTexture) => {
+    if (!overlayCtx) return;
     const enc = device.createCommandEncoder();
     enc.copyTextureToTexture({ texture: tex }, { texture: overlayCtx.getCurrentTexture() },
       { width: Math.min(tex.width, OVERLAY), height: Math.min(tex.height, OVERLAY) });
