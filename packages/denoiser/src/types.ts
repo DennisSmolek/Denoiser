@@ -34,7 +34,9 @@ export interface DenoiserCreateOptions {
    * input miscomputes — see tools/ort-webgpu-aux-repro). When on, cleanAux models
    * fetch a re-exported tail (`<name>.tail.onnx`) + enc_conv0 weights
    * (`<name>.enc0.bin`) alongside the model and run enc_conv0 in WGSL. Verified
-   * to restore native quality. No effect on 3/6-channel models. Default off.
+   * to restore native quality. No effect on 3/6-channel models. **Default on** —
+   * falls back to the plain (speckled) model with a warning if the artifacts
+   * aren't hosted next to the weights. Set false to force the plain model.
    */
   splitAux?: boolean;
 }

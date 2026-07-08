@@ -117,57 +117,71 @@ function show(title: string, bytes: Uint8ClampedArray) {
   views.appendChild(fig);
 }
 
+async function fetchBytes(url: string) { return new Uint8Array(await (await fetch(url)).arrayBuffer()); }
+
+async function runPrecision(
+  precision: 'fp32' | 'fp16', ref: Uint8ClampedArray,
+  color: Uint8ClampedArray, albedo: Uint8ClampedArray, normal: Uint8ClampedArray,
+  keep: DenoiseEngine[],
+) {
+  const sfx = precision === 'fp16' ? '.fp16' : '';
+  const [fullBytes, tailBytes, encBuf] = await Promise.all([
+    fetchBytes(`models/full${sfx}.onnx`),
+    fetchBytes(`models/tail${sfx}.onnx`),
+    fetch(`models/enc0${sfx}.bin`).then((r) => r.arrayBuffer()),
+  ]);
+  const encF = new Float32Array(encBuf);
+  const encWeights = encF.slice(0, C1 * C * 9);
+  const encBias = encF.slice(C1 * C * 9, C1 * C * 9 + C1);
+  const denoiseOpts = { albedo, normal, srgb: false, hdr: false } as const;
+
+  let outFull: Uint8ClampedArray, outSplit: Uint8ClampedArray;
+  try {
+    const fullEngine = await DenoiseEngine.create(fullBytes, { channels: 9, precision });
+    keep.push(fullEngine);
+    outFull = await fullEngine.denoise(color, W, H, denoiseOpts);
+    const splitEngine = await DenoiseEngine.create(tailBytes, {
+      channels: 9, precision, split: { encWeights, encBias, encOutChannels: C1 },
+    });
+    keep.push(splitEngine);
+    outSplit = await splitEngine.denoise(color, W, H, denoiseOpts);
+  } catch (e) {
+    log(`\n[${precision}] SKIPPED: ${(e as Error).message}`);
+    return null;
+  }
+
+  const dFull = diff(outFull, ref), dSplit = diff(outSplit, ref);
+  const nRef = noise(ref), nFull = noise(outFull), nSplit = noise(outSplit);
+  log(`\n=== ${precision} (vs fp32 WASM/native reference) ===`);
+  log(`  [baseline] full model on WebGPU (bug):  max Δ ${dFull.maxByteDiff}  mean ${dFull.meanByteDiff.toFixed(3)}  >2LSB ${dFull.pctOver2LSB.toFixed(1)}%  noise ${nFull.toFixed(1)}`);
+  log(`  [FIX] split (WGSL enc_conv0 + tail):     max Δ ${dSplit.maxByteDiff}  mean ${dSplit.meanByteDiff.toFixed(3)}  >2LSB ${dSplit.pctOver2LSB.toFixed(1)}%  noise ${nSplit.toFixed(1)}`);
+  const tol = precision === 'fp16' ? 12 : 3; // fp16 adds precision noise vs the fp32 reference
+  const pass = dSplit.maxByteDiff <= tol && dFull.maxByteDiff > dSplit.maxByteDiff + 3;
+  log(`  VERDICT: ${pass ? '✅ split clean, baseline speckled' : '❌ unexpected'}`);
+  show(`${precision} ref`, ref);
+  show(`${precision} full (bug)`, outFull);
+  show(`${precision} split (fix)`, outSplit);
+  return { precision, dFull, dSplit, noise: { nRef, nFull, nSplit }, pass };
+}
+
 async function main() {
   log('onnxruntime-web ' + ort.env.versions.web + ' | real DenoiseEngine, 9ch aux, 256x256');
   const vals = makeVals();
   const color = toRGBA(vals, 0), albedo = toRGBA(vals, 3), normal = toRGBA(vals, 6);
 
-  const [fullBytes, tailBytes, encBuf] = await Promise.all([
-    fetch('models/full.onnx').then((r) => r.arrayBuffer()).then((b) => new Uint8Array(b)),
-    fetch('models/tail.onnx').then((r) => r.arrayBuffer()).then((b) => new Uint8Array(b)),
-    fetch('models/enc0.bin').then((r) => r.arrayBuffer()),
-  ]);
-  const encF = new Float32Array(encBuf);
-  const encWeights = encF.slice(0, C1 * C * 9);
-  const encBias = encF.slice(C1 * C * 9, C1 * C * 9 + C1);
-  log(`enc0 weights ${encWeights.length}, bias ${encBias.length}`);
-
-  // WASM full-model reference on the identical bytes/255 input
+  // fp32 WASM full-model reference on the identical bytes/255 input = native truth
+  const fullBytes = await fetchBytes('models/full.onnx');
   const ref = refToBytes(await wasmFullReference(fullBytes, nchwFrom(color, albedo, normal)));
-  log('WASM full-model reference computed');
+  log('fp32 WASM full-model reference computed (native truth)');
 
-  const denoiseOpts = { albedo, normal, srgb: false, hdr: false } as const;
+  const keep: DenoiseEngine[] = [];
+  const results = [
+    await runPrecision('fp32', ref, color, albedo, normal, keep),
+    await runPrecision('fp16', ref, color, albedo, normal, keep),
+  ].filter(Boolean);
 
-  // (B) baseline: full model on ORT-WebGPU through the real engine (the bug)
-  const fullEngine = await DenoiseEngine.create(fullBytes, { channels: 9 });
-  const outFull = await fullEngine.denoise(color, W, H, denoiseOpts);
-
-  // (A) the fix: split mode through the real engine
-  const splitEngine = await DenoiseEngine.create(tailBytes, {
-    channels: 9,
-    split: { encWeights, encBias, encOutChannels: C1 },
-  });
-  const outSplit = await splitEngine.denoise(color, W, H, denoiseOpts);
-
-  const dFull = diff(outFull, ref);
-  const dSplit = diff(outSplit, ref);
-  const nRef = noise(ref), nFull = noise(outFull), nSplit = noise(outSplit);
-
-  log('\n[BASELINE] full model on ORT-WebGPU (the bug) vs WASM reference:');
-  log(`  max byte Δ ${dFull.maxByteDiff}  mean ${dFull.meanByteDiff.toFixed(3)}  pixels >2 LSB: ${dFull.pctOver2LSB.toFixed(2)}%`);
-  log('\n[FIX] split engine (WGSL enc_conv0 + tail on WebGPU) vs WASM reference:');
-  log(`  max byte Δ ${dSplit.maxByteDiff}  mean ${dSplit.meanByteDiff.toFixed(3)}  pixels >2 LSB: ${dSplit.pctOver2LSB.toFixed(2)}%`);
-  log(`\nnoise (R local-var): reference ${nRef.toFixed(2)}  full-webgpu ${nFull.toFixed(2)}  split ${nSplit.toFixed(2)}`);
-
-  const pass = dSplit.maxByteDiff <= 3 && dFull.maxByteDiff > dSplit.maxByteDiff + 3;
-  log(`\nVERDICT: ${pass ? '✅ split matches reference AND fixes the baseline divergence' : '❌ unexpected'}`);
-
-  (window as any).__results = { dFull, dSplit, noise: { nRef, nFull, nSplit }, pass };
-  show('WASM reference', ref);
-  show('full WebGPU (bug)', outFull);
-  show('split (fix)', outSplit);
-
-  splitEngine.destroy(); // releasing last session tears down the shared device
+  (window as any).__results = results;
+  keep.forEach((e) => e.destroy());
   log('\nDONE');
   (window as any).__done = true;
 }

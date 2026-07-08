@@ -1,47 +1,35 @@
 #!/usr/bin/env python3
-"""Build split-graph artifacts for the aux workaround, for one model.
+"""Build split-graph artifacts (both precisions) for the aux workaround.
 
-Outputs into public/models/:
-  full.onnx  — the original model (in-browser baseline + WASM reference)
-  tail.onnx  — enc_conv1..output; inputs [enc_conv0_relu6_2(32), input(9)]
-  enc0.bin   — enc_conv0 weights: f32 OIHW [32,9,3,3] then f32 bias [32],
-               little-endian, contiguous (2592 + 32 = 2624 floats)
+Outputs into public/models/ for BOTH fp32 and fp16 of rt_hdr_calb_cnrm:
+  full[.fp16].onnx  — the original model (baseline + WASM reference)
+  tail[.fp16].onnx  — enc_conv1..output; inputs [enc_conv0_relu6_2, input]
+  enc0[.fp16].bin   — enc_conv0 weights f32 OIHW [32,9,3,3] then bias [32]
+                      (f32 even for the fp16 model; the kernel accumulates in f32)
 
-The WGSL enc_conv0 kernel indexes weights as (co*cin+ci)*9 + ky*3+kx, which is
-exactly numpy's C-order for a (COUT,CIN,3,3) array — so .tobytes() drops straight
-into the GPU buffer.
-
-Usage: <onnx-venv-python> build_split.py [src.onnx]
+Usage: <onnx-venv-python> build_split.py
 """
-import sys
+import os
 import shutil
 import onnx
 from onnx import numpy_helper
 from onnx.utils import extract_model
 
-DEFAULT_SRC = "/Users/dex/Documents/GitHub/homefig/Denoiser/packages/denoiser/models/rt_hdr_calb_cnrm.onnx"
-SRC = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SRC
+MODELS = "/Users/dex/Documents/GitHub/homefig/Denoiser/packages/denoiser/models"
 OUT = "public/models"
 SPLIT = "enc_conv0_relu6_2"
-
-import os
 os.makedirs(OUT, exist_ok=True)
 
-m = onnx.load(SRC)
-init = {t.name: numpy_helper.to_array(t) for t in m.graph.initializer}
-W = init["enc_conv0_W"].astype("float32")   # (32, 9, 3, 3)
-B = init["enc_conv0_B"].astype("float32")   # (32,)
-cout, cin = W.shape[0], W.shape[1]
-assert W.shape[2:] == (3, 3), W.shape
-assert float(init["relu6_min"]) == 0.0 and float(init["relu6_max"]) == 6.0
-
-with open(f"{OUT}/enc0.bin", "wb") as f:
-    f.write(W.tobytes())   # C-order OIHW
-    f.write(B.tobytes())
-print(f"enc0.bin: W{W.shape} + B{B.shape}  ({W.size + B.size} floats)")
-
-extract_model(SRC, f"{OUT}/tail.onnx", [SPLIT, "input"], ["output"])
-shutil.copyfile(SRC, f"{OUT}/full.onnx")
-t = onnx.load(f"{OUT}/tail.onnx")
-print("tail inputs:", [i.name for i in t.graph.input])
-print(f"wrote {OUT}/full.onnx, tail.onnx, enc0.bin  (cin={cin} cout={cout})")
+for suffix in ["", ".fp16"]:
+    name = f"rt_hdr_calb_cnrm{suffix}"
+    src = f"{MODELS}/{name}.onnx"
+    m = onnx.load(src)
+    init = {t.name: numpy_helper.to_array(t) for t in m.graph.initializer}
+    W = init["enc_conv0_W"].astype("float32")   # (32,9,3,3)
+    B = init["enc_conv0_B"].astype("float32")
+    assert float(init["relu6_min"]) == 0.0 and float(init["relu6_max"]) == 6.0
+    with open(f"{OUT}/enc0{suffix}.bin", "wb") as f:
+        f.write(W.tobytes()); f.write(B.tobytes())
+    extract_model(src, f"{OUT}/tail{suffix}.onnx", [SPLIT, "input"], ["output"])
+    shutil.copyfile(src, f"{OUT}/full{suffix}.onnx")
+    print(f"{name}: enc0 W{W.shape}+B{B.shape}, tail + full written")

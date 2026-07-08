@@ -38,7 +38,9 @@ export class Denoiser {
   set quality(q: Quality) { this.opts.quality = q; }
 
   private constructor(opts: DenoiserCreateOptions) {
-    this.opts = { quality: 'fast', ...opts };
+    // splitAux defaults ON so 9ch cleanAux "just works" (dodges the ORT-web
+    // WebGPU Conv bug); falls back to the plain model if artifacts aren't hosted.
+    this.opts = { quality: 'fast', splitAux: true, ...opts };
     this.models = Models.getInstance();
     if (opts.precision) this.models.precision = opts.precision;
     if (opts.weightsUrl) this.models.url = opts.weightsUrl;
@@ -202,26 +204,40 @@ export class Denoiser {
   }
 
   /**
-   * Fetch the split-graph artifacts (tail model + enc_conv0 weights) for a
-   * cleanAux model when splitAux is on. Returns undefined otherwise. Artifacts
-   * live next to the model: `<name>.tail.onnx` and `<name>.enc0.bin` (f32 OIHW
-   * weights [COUT,channels,3,3] then bias [COUT]).
+   * Fetch the split-graph artifacts (tail model + first-conv weights) for a
+   * cleanAux model when splitAux is on. Returns undefined otherwise (incl. when
+   * artifacts aren't hosted — falls back to the plain model with a warning, so
+   * default-on splitAux never hard-fails). Artifacts live next to the model,
+   * with the same precision suffix: `<name>[.fp16].tail.onnx` and
+   * `<name>[.fp16].enc0.bin` (f32 OIHW weights [COUT,channels,3,3] then bias).
    */
   private async loadSplitArtifacts(name: string, channels: number): Promise<
     { tailBytes: Uint8Array; engine: NonNullable<Parameters<typeof DenoiseEngine.create>[1]['split']> } | undefined
   > {
     if (!this.opts.splitAux || channels < 9) return undefined;
     const m = this.models;
-    const base = m.url ? `${m.url}/${name}` : `/${m.path ?? 'models'}/${name}`;
+    const suffix = m.precision === 'fp16' ? '.fp16' : ''; // mirror Models.fileFor
+    const stem = m.url ? `${m.url}/${name}${suffix}` : `/${m.path ?? 'models'}/${name}${suffix}`;
     const fetchBytes = async (url: string) => {
       const r = await fetch(url);
-      if (!r.ok) throw new Error(`Denoiser: splitAux artifact ${url} (${r.status})`);
+      if (!r.ok) throw new Error(`${url} (${r.status})`);
       return r.arrayBuffer();
     };
-    const [tail, encBuf] = await Promise.all([
-      fetchBytes(`${base}.tail.onnx`),
-      fetchBytes(`${base}.enc0.bin`),
-    ]);
+    let tail: ArrayBuffer, encBuf: ArrayBuffer;
+    try {
+      [tail, encBuf] = await Promise.all([
+        fetchBytes(`${stem}.tail.onnx`),
+        fetchBytes(`${stem}.enc0.bin`),
+      ]);
+    } catch (err) {
+      // Artifacts missing/unreachable — run the plain (speckled) model instead of
+      // failing. Aux on WebGPU has a known ORT bug; this is the fallback path.
+      if (!this.splitWarned) {
+        this.splitWarned = true;
+        console.warn(`Denoiser: splitAux artifacts unavailable for ${name}${suffix}, aux will speckle (ORT-web WebGPU Conv bug). Host <name>.tail.onnx + <name>.enc0.bin next to the model, or set splitAux:false to silence.`, err);
+      }
+      return undefined;
+    }
     const f = new Float32Array(encBuf);
     // f = [COUT*channels*9 weights][COUT bias]  ->  len = COUT*(channels*9 + 1)
     const cout = Math.round(f.length / (channels * 9 + 1));
@@ -234,6 +250,8 @@ export class Denoiser {
       },
     };
   }
+
+  private splitWarned = false;
 }
 
 type ImgInputArg = Parameters<typeof toRGBA>[0];
