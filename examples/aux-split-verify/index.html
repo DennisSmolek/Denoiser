@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Aux split workaround — real-engine verification</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #1a202c; color: #e2e8f0; }
+      pre { background: #2d3748; padding: 1rem; border-radius: 4px; white-space: pre-wrap; line-height: 1.5; }
+      h1 { font-size: 1.1rem; }
+      canvas { image-rendering: pixelated; width: 256px; height: 256px; border: 1px solid #4a5568; margin-right: 8px; }
+      .row { display: flex; gap: 8px; margin-top: 1rem; flex-wrap: wrap; }
+      figure { margin: 0; }
+      figcaption { font-size: 0.8rem; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <h1>DenoiseEngine split-graph workaround — real engine vs WASM reference</h1>
+    <p>The actual <code>DenoiseEngine</code> runs in split mode (our WGSL
+       <code>enc_conv0</code> + tail on ORT-WebGPU) and, as a baseline, in normal
+       mode (full model on ORT-WebGPU, the bug). Both compared to a WASM
+       full-model reference on the identical <code>bytes/255</code> input.</p>
+    <pre id="log"></pre>
+    <div class="row" id="views"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

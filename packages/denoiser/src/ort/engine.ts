@@ -42,6 +42,22 @@ export interface EngineOptions {
    * ort-webgpu-graphcapture-repro repo). Off by default until upstream fixes.
    */
   graphCapture?: boolean;
+  /**
+   * Aux split-graph workaround for the onnxruntime-web WebGPU Conv bug (the
+   * first conv reducing the raw >3ch input miscomputes — see
+   * tools/ort-webgpu-aux-repro). When set, `modelBytes` is a re-exported TAIL
+   * model that starts at `enc_conv1` and takes TWO inputs: the enc_conv0 feature
+   * map AND the raw `input` (the dec_conv1a skip still needs it). We compute
+   * enc_conv0 (Conv 3x3 pad1 CIN->encOutChannels + relu6) ourselves in WGSL and
+   * feed both. Verified to restore native quality (1.2e-6 vs reference).
+   */
+  split?: {
+    encWeights: Float32Array; // OIHW [encOutChannels, channels, 3, 3]
+    encBias: Float32Array; // [encOutChannels]
+    encOutChannels: number; // enc_conv0 output channels (32 for the OIDN aux nets)
+    featInputName?: string; // tail input for the feature map (default 'enc_conv0_relu6_2')
+    rawInputName?: string; // tail input for the raw image (default 'input')
+  };
 }
 
 export interface DenoiseOptions {
@@ -112,6 +128,19 @@ interface GeoSession {
   inputTensor: ort.Tensor;
   outputTensor: ort.Tensor;
   plan: Plan;
+  encFeat?: GPUBuffer; // split mode: enc_conv0 output [B, encOutChannels, H, W]
+  encTensor?: ort.Tensor; // split mode: tail feature-map input tensor over encFeat
+}
+
+/** Split-graph workaround state (see EngineOptions.split). */
+interface SplitState {
+  encWeights: Float32Array;
+  encBias: Float32Array;
+  encOutChannels: number;
+  featInputName: string;
+  rawInputName: string;
+  weightBuf?: GPUBuffer; // uploaded once (device-lifetime)
+  biasBuf?: GPUBuffer;
 }
 
 // Conservative upper bound on the widest full-resolution tensor in any of the
@@ -142,6 +171,7 @@ export class DenoiseEngine {
   private ops!: GpuImageOps;
   private geos = new Map<string, GeoSession>();
   private dynamicDims = true; // false for legacy static-dim models
+  private split?: SplitState;
 
   // per-image buffers
   private imgW = 0;
@@ -162,6 +192,23 @@ export class DenoiseEngine {
     this.batch = Math.max(1, opts.batch ?? 8);
     this.precision = opts.precision ?? 'fp32';
     this.maxRunPixels = opts.maxRunPixels ?? 2048 * 1152;
+    if (opts.split) {
+      const s = opts.split;
+      const expectW = s.encOutChannels * this.channels * 9;
+      if (s.encWeights.length !== expectW) {
+        throw new Error(`Denoiser: split encWeights must be ${expectW} floats ([${s.encOutChannels},${this.channels},3,3]), got ${s.encWeights.length}`);
+      }
+      if (s.encBias.length !== s.encOutChannels) {
+        throw new Error(`Denoiser: split encBias must be ${s.encOutChannels} floats, got ${s.encBias.length}`);
+      }
+      this.split = {
+        encWeights: s.encWeights,
+        encBias: s.encBias,
+        encOutChannels: s.encOutChannels,
+        featInputName: s.featInputName ?? 'enc_conv0_relu6_2',
+        rawInputName: s.rawInputName ?? 'input',
+      };
+    }
   }
 
   private get bpe() { return this.precision === 'fp16' ? 2 : 4; }
@@ -200,6 +247,20 @@ export class DenoiseEngine {
       throw new Error('Denoiser: fp16 needs the shader-f16 WebGPU feature (unavailable on this device)');
     }
     e.ops = new GpuImageOps(e.device, e.batch, e.precision === 'fp16');
+
+    // Split mode: upload enc_conv0 weights/bias once (device-lifetime). f32 for
+    // accuracy even when the model IO is fp16 (accumulation is f32 in the kernel).
+    if (e.split) {
+      const s = e.split;
+      s.weightBuf = e.device.createBuffer({
+        size: s.encWeights.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      s.biasBuf = e.device.createBuffer({
+        size: s.encBias.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      e.device.queue.writeBuffer(s.weightBuf, 0, s.encWeights);
+      e.device.queue.writeBuffer(s.biasBuf, 0, s.encBias);
+    }
     return e;
   }
 
@@ -229,11 +290,22 @@ export class DenoiseEngine {
       session = await ort.InferenceSession.create(this.modelBytes, this.baseSessionOpts);
     }
 
-    this.inputName = session.inputNames[0];
     this.outputName = session.outputNames[0];
+    if (this.split) {
+      // Tail model has two inputs: the enc_conv0 feature map and the raw image.
+      for (const n of [this.split.featInputName, this.split.rawInputName]) {
+        if (!session.inputNames.includes(n)) {
+          throw new Error(`Denoiser: split tail model missing input '${n}' (has: ${session.inputNames.join(', ')})`);
+        }
+      }
+      this.inputName = this.split.rawInputName; // the raw image feed
+    } else {
+      this.inputName = session.inputNames[0];
+    }
     const device = (ort.env.webgpu as unknown as { device: GPUDevice }).device;
     const els = plan.batch * plan.tileW * plan.tileH;
     const f16 = this.precision === 'fp16';
+    const dtype = f16 ? 'float16' : 'float32';
     const nchwInput = device.createBuffer({
       size: els * this.channels * this.bpe,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
@@ -245,14 +317,25 @@ export class DenoiseEngine {
     const geo: GeoSession = {
       key, session, nchwInput, outNCHW, plan,
       inputTensor: ort.Tensor.fromGpuBuffer(nchwInput, {
-        dataType: f16 ? 'float16' : 'float32',
+        dataType: dtype,
         dims: [plan.batch, this.channels, plan.tileH, plan.tileW],
       }),
       outputTensor: ort.Tensor.fromGpuBuffer(outNCHW, {
-        dataType: f16 ? 'float16' : 'float32',
+        dataType: dtype,
         dims: [plan.batch, 3, plan.tileH, plan.tileW],
       }),
     };
+    if (this.split) {
+      const cout = this.split.encOutChannels;
+      geo.encFeat = device.createBuffer({
+        size: els * cout * this.bpe,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      });
+      geo.encTensor = ort.Tensor.fromGpuBuffer(geo.encFeat, {
+        dataType: dtype,
+        dims: [plan.batch, cout, plan.tileH, plan.tileW],
+      });
+    }
     // Tiny LRU: sessions hold a GPU copy of the weights; keep a few geometries.
     if (this.geos.size >= 4) {
       const oldest = this.geos.keys().next().value as string;
@@ -266,6 +349,7 @@ export class DenoiseEngine {
   private releaseGeo(g: GeoSession) {
     g.nchwInput.destroy();
     g.outNCHW.destroy();
+    g.encFeat?.destroy();
     g.session.release?.();
   }
 
@@ -432,15 +516,26 @@ export class DenoiseEngine {
           e1, this.color!, albedoBuf!, normalBuf!, geo.nchwInput,
           w, h, tileW, tileH, this.channels, !!opts.srgb, !!opts.hdr, offsets, chunk.length);
       }
+      // Split mode: compute enc_conv0 (nchwInput -> encFeat) ourselves, then run
+      // the tail with BOTH the feature map and the raw input (dec_conv1a skip).
+      if (this.split) {
+        this.ops.encodeEncConv0(
+          e1, geo.nchwInput, this.split.weightBuf!, this.split.biasBuf!, geo.encFeat!,
+          tileW, tileH, this.channels, this.split.encOutChannels, B);
+      }
       d.queue.submit([e1.finish()]);
       const t1 = performance.now();
       encodeMs += t1 - t0;
 
       // Unused slots of a short final batch still run through the model with
       // stale (valid float) contents; their outputs are simply never blended.
-      await geo.session.run(
-        { [this.inputName]: geo.inputTensor },
-        { [this.outputName]: geo.outputTensor });
+      const feeds = this.split
+        ? {
+            [this.split.featInputName]: geo.encTensor!,
+            [this.split.rawInputName]: geo.inputTensor,
+          }
+        : { [this.inputName]: geo.inputTensor };
+      await geo.session.run(feeds, { [this.outputName]: geo.outputTensor });
       t0 = performance.now();
       runMs += t0 - t1;
 
