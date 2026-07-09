@@ -4,6 +4,9 @@ import { createReadStream, createWriteStream, existsSync, statSync, mkdirSync } 
 import path from 'node:path';
 
 const modelsDir = fileURLToPath(new URL('../../packages/denoiser/models', import.meta.url));
+// Split-graph workaround artifacts (<name>.tail.onnx / <name>.enc0.bin), served
+// under /models alongside the real models. Checked first.
+const splitDir = fileURLToPath(new URL('./split-models', import.meta.url));
 
 export default defineConfig({
   server: { fs: { allow: ['../..'] } },
@@ -13,7 +16,12 @@ export default defineConfig({
   // Exactly one three instance: the pathtracer (served as source) and our
   // `three/webgpu` import must resolve to the same copy, or material nodes from
   // one instance are unrecognized by the other (-> "bsdfSample of null").
-  resolve: { dedupe: ['three', 'three-mesh-bvh'] },
+  // Use the worktree's denoiser SOURCE (not the built dist) so local engine edits
+  // — e.g. the aux split-graph workaround — are picked up without a rebuild.
+  resolve: {
+    dedupe: ['three', 'three-mesh-bvh'],
+    alias: { denoiser: fileURLToPath(new URL('../../packages/denoiser/src/index.ts', import.meta.url)) },
+  },
   optimizeDeps: {
     // Serve three + the pathtracer + mesh-bvh as source (not pre-bundled): keeps a
     // single three instance and lets the pathtracer's import.meta.url asset resolve.
@@ -48,7 +56,11 @@ export default defineConfig({
       name: 'serve-models',
       configureServer(server) {
         server.middlewares.use('/models', (req, res, next) => {
-          const file = path.join(modelsDir, decodeURIComponent((req.url ?? '').split('?')[0]));
+          const rel = decodeURIComponent((req.url ?? '').split('?')[0]);
+          const split = path.join(splitDir, rel);
+          const file = (existsSync(split) && statSync(split).isFile())
+            ? split
+            : path.join(modelsDir, rel);
           if (!existsSync(file) || !statSync(file).isFile()) return next();
           res.setHeader('Content-Type', 'application/octet-stream');
           createReadStream(file).pipe(res);

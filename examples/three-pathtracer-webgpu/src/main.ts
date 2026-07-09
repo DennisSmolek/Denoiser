@@ -84,9 +84,17 @@ async function main() {
   patchWebGPUForMaxLimits();
 
   // 1) Denoiser first, so ORT owns the GPUDevice we then share with three.js.
-  const denoiser = await Denoiser.create({ weightsUrl: '/models' });
+  // ?split=1 turns on the aux split-graph workaround (WGSL enc_conv0 + tail) for
+  // the 9ch cleanAux models — compare against ?split=0 to see the ORT-web bug.
+  const appParams = new URLSearchParams(location.search);
+  const splitAux = appParams.has('split') && appParams.get('split') !== '0';
+  // ?headless=1 skips the compare-overlay WebGPU canvas (a second getContext
+  // ('webgpu')+configure that stalls in headless Chrome). __captureAux() reads
+  // the denoise output texture directly and doesn't need the overlay.
+  const headless = appParams.has('headless');
+  const denoiser = await Denoiser.create({ weightsUrl: '/models', splitAux });
   const device = denoiser.device;
-  log(`denoiser ready; sharing GPUDevice with three.js: ${device ? 'yes' : 'no'}`);
+  log(`denoiser ready (splitAux: ${splitAux}); sharing GPUDevice with three.js: ${device ? 'yes' : 'no'}`);
   device.lost.then((info) => log(`DEVICE LOST: ${info.reason} — ${info.message}`));
   device.addEventListener('uncapturederror', (e) =>
     log(`UNCAPTURED GPU ERROR: ${(e as GPUUncapturedErrorEvent).error.message}`));
@@ -162,20 +170,22 @@ async function main() {
   denoisedTex.generateMipmaps = false;
   denoisedTex.colorSpace = fsrMode ? THREE.NoColorSpace : THREE.LinearSRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.initTexture(denoisedTex);
-  const denoisedGpuTex = (renderer.backend as unknown as {
+  if (!headless) renderer.initTexture(denoisedTex);
+  const denoisedGpuTex = headless ? undefined : (renderer.backend as unknown as {
     get: (o: unknown) => { texture?: GPUTexture };
   }).get(denoisedTex)?.texture;
   liveCheckbox.disabled = !denoisedGpuTex;
 
   // The compare overlay canvas: denoised output blitted over the raw path-traced
-  // view, revealed by the slider (pure HTML/CSS clipping).
+  // view, revealed by the slider (pure HTML/CSS clipping). Skipped in headless
+  // mode (its getContext('webgpu')+configure stalls without a compositor).
   const overlayCanvas = document.querySelector<HTMLCanvasElement>('#outGpu')!;
   const OVERLAY = fsrMode ? 1024 : 512; // FSR mode blits its 2x-upscaled result
   overlayCanvas.width = overlayCanvas.height = OVERLAY;
-  const overlayCtx = overlayCanvas.getContext('webgpu')!;
-  overlayCtx.configure({ device, format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  const overlayCtx = headless ? undefined : overlayCanvas.getContext('webgpu');
+  overlayCtx?.configure({ device, format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   const blitToOverlay = (tex: GPUTexture) => {
+    if (!overlayCtx) return;
     const enc = device.createCommandEncoder();
     enc.copyTextureToTexture({ texture: tex }, { texture: overlayCtx.getCurrentTexture() },
       { width: Math.min(tex.width, OVERLAY), height: Math.min(tex.height, OVERLAY) });
@@ -436,6 +446,53 @@ async function main() {
     blitToOverlay(outTex);
     log(`GPU path: denoised in ${(performance.now() - t0).toFixed(1)} ms (${outTex.width}×${outTex.height}, zero-copy)`);
   });
+
+  // 6) Deterministic headless capture for the split-vs-baseline aux comparison.
+  // Accumulates a fixed sample count, rasterizes the G-buffer, runs ONE aux
+  // denoise, and returns { noise, dataUrl }. Drive two page loads (?split=0 vs
+  // ?split=1&aux=1) and compare the noise metric + images.
+  if (appParams.has('aux')) auxCheckbox.checked = true;
+  (window as unknown as Record<string, unknown>).__captureAux = async (targetSamples?: number) => {
+    const target = targetSamples ?? maxSamples();
+    auxCheckbox.checked = true;
+    let guard = 0;
+    while (Math.floor(pathTracer.samples ?? 0) < target && guard++ < 3000) pathTracer.renderSample();
+    renderGBuffer();
+    const color = getTracerTexture();
+    const albedo = backendGet(gbuffer.textures[0]);
+    const normal = backendGet(gbuffer.textures[1]);
+    if (!color || !albedo || !normal) throw new Error('capture: textures unavailable');
+    const outTex = await denoiser.denoiseTextures({
+      color, albedo, normal, hdr: true, inputFlipY: true, auxInputFlipY: false, transfer: 'aces-srgb',
+    });
+    if (!outTex) throw new Error('capture: denoise returned nothing');
+    const w = outTex.width, h = outTex.height, rowBytes = w * 4;
+    const buf = device.createBuffer({ size: rowBytes * h, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const enc = device.createCommandEncoder();
+    enc.copyTextureToBuffer({ texture: outTex }, { buffer: buf, bytesPerRow: rowBytes }, { width: w, height: h });
+    device.queue.submit([enc.finish()]);
+    await buf.mapAsync(GPUMapMode.READ);
+    const bytes = new Uint8ClampedArray(buf.getMappedRange().slice(0));
+    buf.unmap();
+    // noise metric: mean 3x3 local variance of luma (speckle -> high)
+    let acc = 0, n = 0;
+    for (let y = 1; y < h - 1; y++)
+      for (let x = 1; x < w - 1; x++) {
+        let s = 0, s2 = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const i = ((y + dy) * w + (x + dx)) * 4;
+          const l = 0.299 * bytes[i] + 0.587 * bytes[i + 1] + 0.114 * bytes[i + 2];
+          s += l; s2 += l * l;
+        }
+        const m = s / 9; acc += s2 / 9 - m * m; n++;
+      }
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    cv.getContext('2d')!.putImageData(new ImageData(bytes, w, h), 0, 0);
+    const result = { splitAux, samples: Math.floor(pathTracer.samples ?? 0), w, h, noise: acc / n, dataUrl: cv.toDataURL('image/png') };
+    (window as unknown as Record<string, unknown>).__capture = result;
+    log(`capture: splitAux=${splitAux} samples=${result.samples} noise=${result.noise.toFixed(2)}`);
+    return result;
+  };
 }
 
 main().catch((e) => log('ERROR: ' + (e as Error).message));

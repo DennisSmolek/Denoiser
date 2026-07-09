@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>splitAux via the live CDN — shipped-default integration</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #1a202c; color: #e2e8f0; }
+      pre { background: #2d3748; padding: 1rem; border-radius: 4px; white-space: pre-wrap; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <h1>High-level Denoiser, default config, live CDN (@models-v2)</h1>
+    <p>Proves the shipped default fetches the split artifacts and produces clean
+       aux — no local models, no engine wiring by hand.</p>
+    <pre id="log"></pre>
+    <script type="module" src="./cdn.ts"></script>
+  </body>
+</html>
