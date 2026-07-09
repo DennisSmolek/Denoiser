@@ -20,6 +20,12 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
 
 ## Next actions (priority order)
 
+> **Aux status (2026-07-09): FIX MERGED to `main` + on the org** (merge `e70a9b3`);
+> `splitAux` is default-on, artifacts live at `pmndrs/denoiser-weights@models-v2`.
+> **Upstream issue: standalone repro repo published →
+> https://github.com/DennisSmolek/ort-web-webgpu-conv-bug** (repro/ + split/);
+> still TODO: actually file the onnxruntime issue linking it. Detail below.
+
 1. **Aux speckle bug — CONFIRMED upstream 2026-07-08: onnxruntime-web WebGPU-EP,
    NOT our code.** Standalone repro in `tools/ort-webgpu-aux-repro/` (README =
    the upstream bug report): **bare vanilla ORT-web sessions** (no denoiser code,
