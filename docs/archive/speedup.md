@@ -1,3 +1,8 @@
+# Early optimization advice notes
+
+> **ARCHIVED.** These suggestions were executed (or rejected with measurements)
+> in `docs/status/perf-plan.md` — see its Results section.
+
 One probable bottleneck in your current loop is that every 256 tile is submitted as extract → await ORT run → accumulate, which gives you many tiny GPU/JS synchronization points. That does not mean the model is wrong, but it does point to batching/pipeline changes as higher-impact than micro-optimizing the WGSL.
 
 Current docs line up with what the code is already doing well: preferredOutputLocation: 'gpu-buffer' and Tensor.fromGpuBuffer() are the right direction. The bigger remaining question is whether ORT can reduce the repeated WebGPU dispatch overhead via graph capture/batching, and whether the converted model is actually fp16 end-to-end rather than fp16 weights with hidden casts.

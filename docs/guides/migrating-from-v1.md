@@ -4,7 +4,7 @@ v2 is a ground-up rewrite: TensorFlow.js and every WebGL path are gone; the
 U-Net runs as ONNX on onnxruntime-web's WebGPU execution provider, and all
 pre/post-processing is WGSL compute on one shared `GPUDevice`. It is a **clean
 break** — the API changed deliberately (see
-[`docs/specs/api-v2-spec.md`](../specs/api-v2-spec.md) for the rationale):
+[`docs/archive/api-v2-spec.md`](../archive/api-v2-spec.md) for the rationale):
 v1 configured runs through instance flags set in the right order; v2 is
 **stateless per call** — the instance holds identity only (models, sessions,
 device), every run is fully described by its arguments.

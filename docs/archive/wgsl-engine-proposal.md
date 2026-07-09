@@ -1,5 +1,10 @@
 # Proposal: bespoke WGSL inference engine for the OIDN U-Net (side project)
 
+> **ARCHIVED — measured NO-GO (2026-07-07).** Best custom kernel hit 1.32×
+> (f16), under the ≥1.4× gate; the native-Metal gap is hardware matrix units,
+> unreachable from WGSL today. Results: `kernel-spike` branch,
+> `experiments/wgsl-conv/SPIKE.md`. Revisit when WebGPU subgroup-matrix ships.
+
 ## Why
 
 After the perf work, 1080p ≈ 104ms is ~100% ORT conv kernel time. ORT's WebGPU

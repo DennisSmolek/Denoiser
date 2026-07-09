@@ -65,7 +65,7 @@ PSNR(native_color, native_aux) = 47.1 dB (both clean; aux slightly sharper edges
 
 Takeaways: we beat native CPU already; native Metal proves this hardware runs
 the base 9ch U-Net in ~25ms → ~9x kernel-efficiency headroom over ORT-web at
-equal model size — the measured ceiling for docs/specs/wgsl-engine-proposal.md.
+equal model size — the measured ceiling for docs/archive/wgsl-engine-proposal.md.
 
 ### Fairness check (`-t half|float`, `-q high|balanced|fast`, Metal)
 

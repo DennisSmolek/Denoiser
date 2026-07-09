@@ -22,16 +22,15 @@ covers install, quick start, the API sketch, and the device-lifetime rules.
   the TFJS → WebGPU/ONNX migration (architecture, gotchas, commit map).
 - [perf-plan.md](status/perf-plan.md) — the performance work: plan, executed
   phases, measured results (bench harness, fp16, whole-frame, zero-copy…).
-- [speedup.md](status/speedup.md) — early optimization advice notes (since
-  executed; kept for context).
 
 ## Specs / references (`specs/`)
 
-- [api-v2-spec.md](specs/api-v2-spec.md) — the v2 stateless-API design (implemented).
 - [oidn-color-reference.md](specs/oidn-color-reference.md) — OIDN's color
   pipeline (PU transfer, autoexposure, normal encoding) and how ours matches it.
-- [wgsl-engine-proposal.md](specs/wgsl-engine-proposal.md) — bespoke WGSL
-  inference engine side-project (proposal; measured ceiling in
-  [`tools/oidn-native-compare`](../tools/oidn-native-compare/README.md)).
 - [upscale-roadmap.md](specs/upscale-roadmap.md) — denoise→upscale (FSR1 done,
   temporal later).
+
+## Archive (`archive/`)
+
+Superseded proposals and notes (implemented specs, NO-GO experiments) — see
+[archive/README.md](archive/README.md).

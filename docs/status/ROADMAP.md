@@ -67,7 +67,7 @@ minor.
 
 ## Phased plan
 
-### Phase A — stabilize & release (now)
+### Phase A — stabilize (now)
 1. File the onnxruntime issue (repo ready:
    [DennisSmolek/ort-web-webgpu-conv-bug](https://github.com/DennisSmolek/ort-web-webgpu-conv-bug)).
 2. CI minimum: build + `tsc` + converter parity (STATUS checklist).
@@ -75,22 +75,44 @@ minor.
    WebGPU-unavailable error message points at requirements/v1.
 4. `denoiser-react`: decide port-or-drop (leaning drop-for-now: v2 API is
    ~2 calls, a wrapper adds little; revisit on demand).
-5. Publish `denoiser@2.0.0`.
+5. Docs housecleaning — DONE 2026-07-09: implemented/NO-GO docs moved to
+   `docs/archive/` with status banners (api-v2-spec, wgsl-engine-proposal,
+   speedup notes).
+6. **Push the `2.0.0` base to GitHub** (version, changelog). The **npm publish
+   is deliberately gated on Phase B** — no 2.0 on npm until the examples +
+   docs site exist to receive the people it brings in.
 
-### Phase B — examples & docs site (the launch)
+### Phase B — examples & docs site (the launch; gates the npm publish)
+
+> Detailed Phase B planning session happens after Phase A completes. The
+> agreed scope so far:
+
 1. **Hello-world example**: img → denoise → canvas, ~10 lines, no three.js.
 2. **Before/after gallery**: precomputed low-spp renders (Blender Cycles +
    albedo/normal AOVs), comparison slider, spp ladder (1/2/4/8). Sexiest thing
    we can ship **without** the pathtracer, and it shows pure quality.
-3. Polish + deploy `three-pathtracer-webgpu` and `ldraw-eiffel` (interactive;
+3. **Aux-inputs visualization example**: show color/albedo/normal as the
+   network sees them, aux on/off comparison. Seed: the input-view debug
+   tooling already in `examples/ldraw-eiffel`.
+4. **Raw-WebGPU demo AND Babylon demo** — both, to show scope: the library is
+   engine-agnostic, three.js is just the flagship integration.
+5. **FSR3 pipeline demo** — companion FSR3 port (working, minus frame
+   generation) exists as a sister library: pathtrace/render → denoise →
+   FSR3-upscale on one device. Supersedes the demo's FSR1 stage; also update
+   [upscale-roadmap.md](../specs/upscale-roadmap.md) when it lands.
+6. **Realtime-denoiser comparison demo** — side-by-side vs three.js's
+   `RecurrentDenoiseNode` (temporal, lightweight): quality AND ms-per-frame.
+   Honest positioning: we are the slow/high-quality final-frame +
+   progressive-refinement option; temporal realtime denoisers are a different
+   point on the curve, complementary not competing.
+7. Polish + deploy `three-pathtracer-webgpu` and `ldraw-eiffel` (interactive;
    pinned SHA is fine for a demo).
-4. One non-three integration example (raw WebGPU or Babylon) to prove
-   engine-neutrality.
-5. **Docs site** in the pmndrs style (docs.pmnd.rs system builds from the
+8. **Docs site** in the pmndrs style (docs.pmnd.rs system builds from the
    `docs/` markdown tree): audit README + docs for v2 accuracy, restructure to
    the pmndrs docs conventions, GH-Pages-host the built examples and link/embed
    them. Include a WebGPU-support matrix page.
-6. Launch: share for feedback (pmndrs discord, three.js forum, X).
+9. Launch: publish `denoiser@2.0.0` to npm, share for feedback (pmndrs
+   discord, three.js forum, X).
 
 ### Phase C — expand (post-launch, demand-driven)
 - **Lightmap track**: convert `rt_lightmap_hdr`/`rt_lightmap_dir` to
@@ -104,7 +126,11 @@ minor.
   doc needed — it's written.
 - OIDN 2.x engine-side investigation (weights identical; gains were engine
   choices — one pass to see what's portable).
-- OIDN 3.x temporal models when released (H2 2026) — see
+- **Temporal: wait for OIDN 3.x** (H2 2026). The current RT weights are
+  single-frame — reusing them per-frame would flicker (no temporal
+  accumulation in the network), so we don't chase a temporal mode until
+  upstream ships temporal models. The RecurrentDenoiseNode comparison demo
+  (Phase B) documents the runtime/quality trade in the meantime. See
   [upscale-roadmap.md](../specs/upscale-roadmap.md).
 
 ### When the upstream ORT bug is fixed

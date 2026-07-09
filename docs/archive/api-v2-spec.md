@@ -1,5 +1,8 @@
 # API v2 proposal (for discussion)
 
+> **ARCHIVED — implemented.** 2.x ships this API. Current docs: the package
+> README and `docs/guides/three-js-render-targets.md`. Kept for the rationale.
+
 Problem: the GPU path is configured through instance flags set in the right
 order (`hdr`, `srgb`, `flipInputY`, `flipOutputY`, `tonemapOutput`,
 `outputMode`, `setInputTexture`, `setOutputTexture`) — stateful, order-
