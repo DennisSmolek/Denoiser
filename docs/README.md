@@ -16,6 +16,8 @@ covers install, quick start, the API sketch, and the device-lifetime rules.
 
 - [**STATUS.md**](status/STATUS.md) — current state, **next actions**, known
   issues, and the org-migration checklist. The living doc.
+- [ROADMAP.md](status/ROADMAP.md) — strategic view: v1/native-OIDN comparison,
+  use-case coverage, and the phased plan to the public v2 launch.
 - [MIGRATION_PROGRESS.md](status/MIGRATION_PROGRESS.md) — historical record of
   the TFJS → WebGPU/ONNX migration (architecture, gotchas, commit map).
 - [perf-plan.md](status/perf-plan.md) — the performance work: plan, executed
