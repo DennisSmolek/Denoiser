@@ -45,6 +45,21 @@ the pmndrs docs system can consume it.
 2. **Shared demo chrome**: tiny common package/snippet — WebGPU feature
    detect with a friendly "needs WebGPU" banner (link to support matrix),
    FPS/ms overlay, standard footer (repo/docs links). Keep it dependency-free.
+   **Controls — three-based demos use the new three.js Inspector, not
+   lil-gui** (`three/addons/inspector/Inspector.js`, shipped in our pinned
+   r185; reference: three's `webgpu_postprocessing_ao.html`):
+   - `renderer.inspector = new Inspector()`;
+     `inspector.createParameters('Section')` gives lil-gui-style sections.
+   - `.toInspector('Label')` on TSL texture/pass nodes = a free pass viewer —
+     directly useful for showing color/albedo/normal aux inputs and the
+     denoised pass (the `aux-inputs` demo can lean on this heavily).
+   - **Overhead is an open question — spike before adopting everywhere**:
+     bench a demo with (a) no inspector, (b) attached but closed, (c) open.
+     If attached-closed isn't free, mount it behind `?inspector=1` and keep
+     the default page clean. (It's also another internal-ish surface —
+     re-verify per three release like the backend interop.)
+   - Non-three demos (hello-world, webgpu-raw, babylon) can't use it; they
+     keep the dependency-free chrome only.
 3. **Demo assets**: noisy renders + AOV ladders for the gallery demos.
    Primary plan: **dogfood** — a capture mode in the existing pathtracer
    examples that saves frames at 1/2/4/8/16 spp plus albedo/normal AOVs
@@ -207,4 +222,5 @@ Proposed information architecture (pmndrs-docs style, one MDX per page):
 
 Open questions to resolve early (cheap spikes, in order): pmndrs/docs current
 registration process; Babylon external-device adoption;
-RecurrentDenoiseNode exact API/availability in r185+.
+RecurrentDenoiseNode exact API/availability in r185+; three.js Inspector
+overhead (none / attached-closed / open — decide default-on vs `?inspector=1`).
