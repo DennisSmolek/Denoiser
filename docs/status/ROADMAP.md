@@ -84,8 +84,8 @@ minor.
 
 ### Phase B — examples & docs site (the launch; gates the npm publish)
 
-> Detailed Phase B planning session happens after Phase A completes. The
-> agreed scope so far:
+> Full execution plan: [phase-b-plan.md](phase-b-plan.md) (stages B0–B4,
+> per-demo specs, docs-site page outline, sequencing). Agreed scope:
 
 1. **Hello-world example**: img → denoise → canvas, ~10 lines, no three.js.
 2. **Before/after gallery**: precomputed low-spp renders (Blender Cycles +
