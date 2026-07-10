@@ -218,6 +218,18 @@
           </div>
         </a>
 
+        <a class="card" href="./upscale-pipeline/">
+          <img class="shot" src="./shots/upscale-pipeline.png" alt="Denoise + upscale pipeline demo screenshot: FSR1-upscaled path-traced scene with the per-stage render/denoise/upscale GPU cost bar" loading="lazy">
+          <div class="card-body">
+            <p class="card-title">Denoise &#43; upscale pipeline <span class="arrow">&#8594;</span></p>
+            <p class="card-desc">
+              Three pmndrs packages, one <code>GPUDevice</code>: render small,
+              denoise, FSR-upscale to full res &mdash; zero CPU copies, every
+              stage timed.
+            </p>
+          </div>
+        </a>
+
         <a class="card" href="./bench/">
           <img class="shot" src="./shots/bench.jpg" alt="benchmark harness screenshot: per-stage timings and noisy/denoised comparison" loading="lazy">
           <div class="card-body">
