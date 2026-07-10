@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>denoiser — hello world</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem auto;
+        max-width: 900px;
+        padding: 0 1rem;
+        background: #1a202c;
+        color: #e2e8f0;
+        line-height: 1.5;
+      }
+      h1 { margin-bottom: 0.25rem; }
+      a { color: #90cdf4; }
+      .lede { color: #a0aec0; margin-top: 0; }
+      .row { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 1.5rem 0; }
+      figure { margin: 0; }
+      figcaption { color: #a0aec0; font-size: 0.85rem; margin-top: 0.4rem; }
+      canvas { display: block; border: 1px solid #4a5568; image-rendering: pixelated; width: 400px; max-width: 100%; height: auto; }
+      #status { color: #a0aec0; font-size: 0.9rem; min-height: 1.2em; }
+      #unsupported {
+        display: none;
+        background: #742a2a;
+        border: 1px solid #c53030;
+        color: #fed7d7;
+        padding: 0.75rem 1rem;
+        border-radius: 6px;
+        margin: 1rem 0;
+      }
+      #unsupported[hidden] { display: none; }
+      #unsupported:not([hidden]) { display: block; }
+      pre {
+        background: #2d3748;
+        padding: 1rem;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      footer { margin-top: 3rem; color: #718096; font-size: 0.85rem; }
+    </style>
+  </head>
+  <body>
+    <h1>denoiser — hello world</h1>
+    <p class="lede">
+      A noisy path-traced render, denoised entirely in the browser over WebGPU.
+      No three.js, no build tricks — the code below is the whole story.
+    </p>
+
+    <div id="unsupported" hidden></div>
+
+    <div class="row">
+      <figure>
+        <canvas id="noisy" width="512" height="512"></canvas>
+        <figcaption>noisy — 512×512, 4 samples/pixel (raw path tracer output)</figcaption>
+      </figure>
+      <figure>
+        <canvas id="denoised" width="512" height="512"></canvas>
+        <figcaption>denoised — Denoiser.create() → denoise()</figcaption>
+      </figure>
+    </div>
+
+    <p id="status"></p>
+
+    <h2>The whole thing</h2>
+    <pre><code id="snippet"></code></pre>
+
+    <!-- Hidden source image: this is the actual element passed to denoiser.denoise(). -->
+    <img id="noisy-img" src="/noisy.png" alt="" style="display: none" />
+
+    <footer>
+      <a href="https://github.com/pmndrs/denoiser">denoiser</a> ·
+      models load from the default CDN, no <code>weightsUrl</code> override.
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
