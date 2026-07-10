@@ -529,7 +529,8 @@ export class GpuImageOps {
   ) {
     this.device.queue.writeBuffer(this.extractParams, 0,
       new Uint32Array([imgW, imgH, tileW, tileH, channels, srgb ? 1 : 0, count, hdr ? 1 : 0]));
-    this.device.queue.writeBuffer(this.extractOffsets, 0, offsets, 0, count * 2);
+    // See ArrayBuffer-vs-ArrayBufferLike note in engine.ts (TS 5.7+ lib.dom typings).
+    this.device.queue.writeBuffer(this.extractOffsets, 0, offsets as BufferSource, 0, count * 2);
     this.run(enc, this.extractPipe,
       [color, albedo, normal, dst, this.extractParams, this.extractOffsets, this.exposureBuf],
       tileW, tileH, count);
@@ -574,7 +575,8 @@ export class GpuImageOps {
     this.device.queue.writeBuffer(this.extractParams, 0,
       new Uint32Array([imgW, imgH, tileW, tileH, channels, srgb ? 1 : 0, count, flipY ? 1 : 0,
         hdr ? 1 : 0, auxFlipY ? 1 : 0, 0, 0]));
-    this.device.queue.writeBuffer(this.extractOffsets, 0, offsets, 0, count * 2);
+    // See ArrayBuffer-vs-ArrayBufferLike note in engine.ts (TS 5.7+ lib.dom typings).
+    this.device.queue.writeBuffer(this.extractOffsets, 0, offsets as BufferSource, 0, count * 2);
     this.runMixed(enc, this.extractTexPipe,
       [color, albedo, normal, { buffer: dst }, { buffer: this.extractParams },
         { buffer: this.extractOffsets }, { buffer: this.exposureBuf }],

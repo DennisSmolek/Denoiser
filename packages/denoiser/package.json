@@ -41,19 +41,18 @@
         "format": "prettier --write ."
     },
     "devDependencies": {
-        "@rollup/plugin-commonjs": "^25.0.7",
-        "@rollup/plugin-node-resolve": "^15.0.1",
-        "@rollup/plugin-typescript": "^11.1.6",
-        "@typescript-eslint/eslint-plugin": "^7.7.1",
-        "@typescript-eslint/parser": "^7.5.0",
-        "@webgpu/types": "^0.1.40",
-        "eslint": "^9.0.0",
-        "prettier": "^3.2.5",
-        "rollup": "^4.14.0",
+        "@rollup/plugin-commonjs": "^29.0.3",
+        "@rollup/plugin-node-resolve": "^16.0.3",
+        "@rollup/plugin-typescript": "^12.3.0",
+        "@typescript-eslint/eslint-plugin": "^8.63.0",
+        "@typescript-eslint/parser": "^8.63.0",
+        "@webgpu/types": "^0.1.71",
+        "eslint": "^10.6.0",
+        "prettier": "^3.9.5",
+        "rollup": "^4.62.2",
         "rollup-plugin-copy": "^3.5.0",
-        "rollup-plugin-filesize": "^10.0.0",
-        "tslib": "^2.6.3",
-        "typescript": "^5.5.2"
+        "tslib": "^2.8.1",
+        "typescript": "^5.9.3"
     },
     "dependencies": {
         "onnxruntime-web": "^1.27.0"

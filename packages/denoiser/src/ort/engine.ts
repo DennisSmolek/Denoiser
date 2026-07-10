@@ -264,8 +264,10 @@ export class DenoiseEngine {
       s.biasBuf = e.device.createBuffer({
         size: s.encBias.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
-      e.device.queue.writeBuffer(s.weightBuf, 0, s.encWeights);
-      e.device.queue.writeBuffer(s.biasBuf, 0, s.encBias);
+      // TS 5.7+ lib.dom typings narrowed GPUAllowSharedBufferSource views to ArrayBuffer-backed;
+      // this engine never uses SharedArrayBuffer, so these casts are safe.
+      e.device.queue.writeBuffer(s.weightBuf, 0, s.encWeights as BufferSource);
+      e.device.queue.writeBuffer(s.biasBuf, 0, s.encBias as BufferSource);
     }
     return e;
   }
@@ -476,9 +478,10 @@ export class DenoiseEngine {
 
     const tStart = performance.now();
     if (src.cpu) {
-      d.queue.writeBuffer(this.color!, 0, src.cpu.color);
-      if (src.cpu.albedo) d.queue.writeBuffer(this.albedo!, 0, src.cpu.albedo);
-      if (src.cpu.normal) d.queue.writeBuffer(this.normal!, 0, src.cpu.normal);
+      // See ArrayBuffer-vs-ArrayBufferLike note above.
+      d.queue.writeBuffer(this.color!, 0, src.cpu.color as BufferSource);
+      if (src.cpu.albedo) d.queue.writeBuffer(this.albedo!, 0, src.cpu.albedo as BufferSource);
+      if (src.cpu.normal) d.queue.writeBuffer(this.normal!, 0, src.cpu.normal as BufferSource);
     }
 
     const clr = d.createCommandEncoder();

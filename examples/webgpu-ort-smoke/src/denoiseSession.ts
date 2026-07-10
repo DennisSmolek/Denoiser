@@ -157,7 +157,9 @@ export class DenoiseSession {
     const d = this.device;
 
     // 1) upload pixels, 2) RGBA8 -> normalized NCHW
-    d.queue.writeBuffer(this.inputPixels!, 0, rgba);
+    // TS 5.7+ lib.dom typings narrowed GPUAllowSharedBufferSource views to ArrayBuffer-backed;
+    // this example never uses SharedArrayBuffer, so this cast is safe.
+    d.queue.writeBuffer(this.inputPixels!, 0, rgba as BufferSource);
     const pre = d.createCommandEncoder();
     this.ops!.encodeToNCHW(pre, this.inputPixels!, this.nchwInput!, this.size, this.size);
     d.queue.submit([pre.finish()]);
@@ -192,9 +194,10 @@ export class DenoiseSession {
     if (!this.ops) this.setupGpuPath();
     const d = this.device;
 
-    d.queue.writeBuffer(this.inputPixels!, 0, color);
-    d.queue.writeBuffer(this.inputAlbedo!, 0, albedo);
-    d.queue.writeBuffer(this.inputNormal!, 0, normal);
+    // See ArrayBuffer-vs-ArrayBufferLike note above.
+    d.queue.writeBuffer(this.inputPixels!, 0, color as BufferSource);
+    d.queue.writeBuffer(this.inputAlbedo!, 0, albedo as BufferSource);
+    d.queue.writeBuffer(this.inputNormal!, 0, normal as BufferSource);
 
     const pre = d.createCommandEncoder();
     this.ops!.encodeToNCHWAux(
@@ -247,7 +250,8 @@ export class DenoiseSession {
     const tilesX = Math.ceil(w / stride);
     const tilesY = Math.ceil(h / stride);
 
-    d.queue.writeBuffer(this.imgPixels!, 0, rgba);
+    // See ArrayBuffer-vs-ArrayBufferLike note above.
+    d.queue.writeBuffer(this.imgPixels!, 0, rgba as BufferSource);
     const clr = d.createCommandEncoder();
     clr.clearBuffer(this.accum!);
     clr.clearBuffer(this.weight!);

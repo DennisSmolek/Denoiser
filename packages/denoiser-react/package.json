@@ -34,22 +34,5 @@
         "tzas/**",
         "README.md",
         "LICENSE"
-    ],
-    "scripts": {
-        "format": "prettier --write ."
-    },
-    "devDependencies": {
-        "@rollup/plugin-commonjs": "^25.0.7",
-        "@rollup/plugin-node-resolve": "^15.0.1",
-        "@rollup/plugin-typescript": "^11.1.6",
-        "@typescript-eslint/eslint-plugin": "^7.7.1",
-        "@typescript-eslint/parser": "^7.5.0",
-        "eslint": "^9.0.0",
-        "prettier": "^3.2.5",
-        "rollup": "^4.14.0",
-        "rollup-plugin-copy": "^3.5.0",
-        "rollup-plugin-filesize": "^10.0.0",
-        "tslib": "^2.6.3",
-        "typescript": "^5.5.2"
-    }
+    ]
 }

@@ -2,7 +2,6 @@ import commonjs from '@rollup/plugin-commonjs';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
 import typescript from '@rollup/plugin-typescript';
 import path from 'node:path';
-import filesize from 'rollup-plugin-filesize';
 import copy from 'rollup-plugin-copy';
 
 
@@ -36,8 +35,7 @@ export default [
             commonjs(),
             typescript({
                 tsconfig: path.resolve('tsconfig.json')
-            }),
-            filesize()
+            })
         ],
         // disable three-stdlib eval warning for now
         onwarn: (warning, warn) => {

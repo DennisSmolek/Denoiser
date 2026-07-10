@@ -77,7 +77,9 @@ export class Denoiser {
       onProgress: this.progressCb(options.onProgress),
     });
     if (this.aborted) return this.emitExecuted(undefined);
-    const img = new ImageData(out, c.width, c.height);
+    // TS 5.7+ lib.dom typings narrowed ImageData's data param to Uint8ClampedArray<ArrayBuffer>;
+    // this engine never uses SharedArrayBuffer, so the underlying buffer is always ArrayBuffer.
+    const img = new ImageData(out as Uint8ClampedArray<ArrayBuffer>, c.width, c.height);
     this.emitExecuted(img);
     return img;
   }

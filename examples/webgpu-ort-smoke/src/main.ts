@@ -86,7 +86,9 @@ async function run(session: DenoiseSession) {
   const dt = performance.now() - t0;
   log(`done in ${dt.toFixed(1)} ms`);
 
-  cleanCanvas.getContext('2d')!.putImageData(new ImageData(rgbaOut, SIZE, SIZE), 0, 0);
+  // TS 5.7+ lib.dom typings narrowed ImageData's data param to Uint8ClampedArray<ArrayBuffer>;
+  // this example never uses SharedArrayBuffer, so this cast is safe.
+  cleanCanvas.getContext('2d')!.putImageData(new ImageData(rgbaOut as Uint8ClampedArray<ArrayBuffer>, SIZE, SIZE), 0, 0);
 
   // correctness A/B: compare the all-GPU result to the JS-preprocessed path
   const nchw = rgbaToNCHW(noisy.data, SIZE, SIZE, session.channels);
@@ -123,7 +125,8 @@ async function runTiled(session: DenoiseSession) {
   const out = await session.denoiseImage(noisy.data, BIG_W, BIG_H);
   const dt = performance.now() - t0;
   log(`tiled denoise done in ${dt.toFixed(1)} ms (${(dt / grid.total).toFixed(1)} ms/tile)`);
-  cleanBig.getContext('2d')!.putImageData(new ImageData(out, BIG_W, BIG_H), 0, 0);
+  // See ArrayBuffer-vs-ArrayBufferLike note above.
+  cleanBig.getContext('2d')!.putImageData(new ImageData(out as Uint8ClampedArray<ArrayBuffer>, BIG_W, BIG_H), 0, 0);
 }
 
 async function runAux(session: DenoiseSession) {
@@ -139,7 +142,8 @@ async function runAux(session: DenoiseSession) {
   const t0 = performance.now();
   const out = await session.denoiseAuxTile(color.data, albedo.data, normal.data);
   log(`aux denoise done in ${(performance.now() - t0).toFixed(1)} ms`);
-  auxClean.getContext('2d')!.putImageData(new ImageData(out, SIZE, SIZE), 0, 0);
+  // See ArrayBuffer-vs-ArrayBufferLike note above.
+  auxClean.getContext('2d')!.putImageData(new ImageData(out as Uint8ClampedArray<ArrayBuffer>, SIZE, SIZE), 0, 0);
 }
 
 async function main() {
