@@ -98,11 +98,13 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
 - [ ] The `webgpu-pathtracer` dependency is a **git branch**
       (`github:gkjohnson/three-gpu-pathtracer#webgpu-pathtracer`) — pin to a
       commit SHA before org CI depends on it, and watch for its npm release.
-- [ ] CI: no workflows exist yet. Minimum useful set: `yarn build` +
-      `tsc --noEmit` across workspaces, and the Python converter's
-      `verify_parity.py` (pure CPU, runs headless).
-- [ ] `packages/denoiser-react`: still on the old v1 API — decide port or drop
-      before publishing v2.
+- [x] CI: `.github/workflows/ci.yml` — build + per-workspace `tsc --noEmit`
+      (node job) and converter `verify_parity.py` (CPU, LFS checkout).
+      Hardened 2026-07-10; watch the first run for LFS/immutable behavior.
+- [x] `packages/denoiser-react`: **kept as a deprecated stub** (2026-07-10) —
+      `private: true`, TFJS deps removed (killed the critical dependabot
+      chain), README now shows v2-in-plain-React; v1 source stays in `src/`
+      and the 0.x line.
 - [x] ~~`/examples` gitignore~~ — fixed: example sources tracked normally.
 - [x] Memory/handoff: this docs tree is the source of truth.
 

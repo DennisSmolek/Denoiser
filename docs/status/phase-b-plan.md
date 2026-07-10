@@ -101,15 +101,17 @@ tracer (sphere/box scene, ~200 lines, progressive accumulation) →
 bundler magic. Also serves as the reference for "integrate with a custom
 engine" docs.
 
-### 5. `babylon` — Babylon.js integration (M, **risk item**)
-Purpose: prove engine-neutrality, direction 2. **Open question to resolve
-first** (30-min spike): can Babylon's `WebGPUEngine` adopt an external
-`GPUDevice` (ours), the way three's `WebGPURenderer({ device })` can? If yes:
-zero-copy path, same story as three. If no: ship the CPU-copy path
-(readback → `denoise` → texture upload) and say so honestly — still a working
-integration, and it documents the boundary. Scene: something Babylon-idiomatic
-(their PBR showcase style) with simple accumulated noise (jittered AO or
-env-sampling), not a full path tracer.
+### 5. `babylon` — Babylon.js integration (M)
+Purpose: prove engine-neutrality, direction 2. **Spike resolved (2026-07-10):
+no zero-copy** — Babylon's `WebGPUEngine` (current 9.16) cannot adopt an
+external `GPUDevice` (`WebGPUEngineOptions` has only `deviceDescriptor`;
+`initAsync` hard-codes adapter/device acquisition), and ORT can't adopt
+Babylon's either (onnxruntime #26107). So this demo ships the **CPU-copy
+path** and documents the boundary honestly: render to `RenderTargetTexture` →
+`await rtt.readPixels()` (full-float, width divisible by 64 for the fast
+path) → `denoise()` → upload via `RawTexture.update`. Scene: something
+Babylon-idiomatic (PBR showcase style) with simple accumulated noise, not a
+full path tracer.
 
 ### 6. Polish + deploy existing pathtracer demos (S/M)
 `three-pathtracer-webgpu` + `ldraw-eiffel`: demo chrome, sane defaults,
@@ -125,8 +127,14 @@ Purpose: honest positioning. Same scene (three WebGPURenderer), split view:
 Narrative on the page: different points on the quality/latency curve —
 temporal realtime for motion, OIDN-class for stills/converged frames;
 complementary, not competing. (Temporal OIDN waits for 3.x weights — say so.)
-**Verify first**: RecurrentDenoiseNode's API/availability in r185+ (it's
-recent; check exact import and requirements).
+**Spike resolved (2026-07-10):** available since exactly r185
+(`three/addons/tsl/display/RecurrentDenoiseNode.js`, `recurrentDenoise()`;
+canonical example `webgpu_postprocessing_ssr_denoise.html`). Design
+consequence: it is a **screen-space-effect denoiser** ('diffuse' for AO/SSGI,
+'specular' for SSR) needing depth/normal/metalRoughness/raw G-buffer inputs —
+not a beauty-pass denoiser. So the fair comparison is an SSGI/SSR-style noisy
+effect denoised both ways, NOT a path-traced beauty frame (where it isn't
+designed to compete). Frame the page accordingly.
 
 ### 8. `fsr3-pipeline` — denoise → upscale (M, **LAST**, blocked on companion lib)
 Pathtrace/render at 512–720p → denoise (hdr) → FSR3 upscale to canvas res,
@@ -184,9 +192,18 @@ Proposed information architecture (pmndrs-docs style, one MDX per page):
 
 1. **GitHub Pages** on `pmndrs/denoiser` from the B1 workflow (examples +
    any static assets). Custom domain optional and additive later.
-2. **Register with the pmndrs docs system** — PR/config so docs.pmnd.rs
-   serves the `docs/` tree (verify the current registration process against
-   pmndrs/docs; r3f is the template).
+2. **Publish via the pmndrs docs system** — spike resolved (2026-07-10):
+   fully self-service. Add `.github/workflows/docs.yml` calling the reusable
+   workflow `pmndrs/docs/.github/workflows/build.yml@v3` (inputs: `mdx:
+   'docs'`, `libname`, `home_redirect`, icon/logo) + `actions/deploy-pages`;
+   enable Pages (source: GitHub Actions) → live at
+   `pmndrs.github.io/denoiser`. Docs must be **.mdx** with `title` /
+   `description` / global-numeric `nav` frontmatter; folder name = nav
+   section label; images served from the raw branch URL; `<Codesandbox
+   embed>` / `<Sandpack>` give live embeds. The friendly URL is a separate,
+   later step: PR a redirect into pmndrs/docs `next.config.mjs`
+   (`docs.pmnd.rs/denoiser/*` → Pages), or org-admin DNS for
+   `denoiser.docs.pmnd.rs`.
 3. **npm**: publish `2.0.0` (this is the launch trigger, not before).
 4. Launch posts: pmndrs Discord, three.js forum, X. Lead with the gallery +
    a pathtracer demo link.
@@ -220,7 +237,8 @@ Proposed information architecture (pmndrs-docs style, one MDX per page):
 | 7 | Demo 8 (FSR3) | companion lib ready |
 | 8 | B4.3–B4.4 npm publish + announce | everything above |
 
-Open questions to resolve early (cheap spikes, in order): pmndrs/docs current
-registration process; Babylon external-device adoption;
-RecurrentDenoiseNode exact API/availability in r185+; three.js Inspector
-overhead (none / attached-closed / open — decide default-on vs `?inspector=1`).
+Open questions — three of four resolved 2026-07-10 (results inline above:
+pmndrs docs = self-service reusable workflow; Babylon = no shared device,
+CPU-copy path; RecurrentDenoiseNode = in r185, screen-space effects only).
+Still open: three.js Inspector overhead (none / attached-closed / open —
+decide default-on vs `?inspector=1`).
