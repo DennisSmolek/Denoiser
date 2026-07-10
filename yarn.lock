@@ -986,6 +986,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"aux-inputs@workspace:examples/aux-inputs":
+  version: 0.0.0-use.local
+  resolution: "aux-inputs@workspace:examples/aux-inputs"
+  dependencies:
+    denoiser: "workspace:*"
+    onnxruntime-web: "npm:^1.27.0"
+    typescript: "npm:^5.9.3"
+    vite: "npm:^8.1.4"
+  languageName: unknown
+  linkType: soft
+
 "aux-split-verify@workspace:examples/aux-split-verify":
   version: 0.0.0-use.local
   resolution: "aux-split-verify@workspace:examples/aux-split-verify"
@@ -3182,6 +3193,17 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "webgpu-ort-smoke@workspace:examples/webgpu-ort-smoke"
   dependencies:
+    onnxruntime-web: "npm:^1.27.0"
+    typescript: "npm:^5.9.3"
+    vite: "npm:^8.1.4"
+  languageName: unknown
+  linkType: soft
+
+"webgpu-raw@workspace:examples/webgpu-raw":
+  version: 0.0.0-use.local
+  resolution: "webgpu-raw@workspace:examples/webgpu-raw"
+  dependencies:
+    denoiser: "workspace:*"
     onnxruntime-web: "npm:^1.27.0"
     typescript: "npm:^5.9.3"
     vite: "npm:^8.1.4"

@@ -1,0 +1,20 @@
+{
+  "name": "webgpu-raw",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Engine-agnostic proof: a single-file WGSL toy path tracer (plain WebGPU, no three.js) sharing one GPUDevice with the denoiser. The reference for the 'custom engines / raw WebGPU' guide.",
+  "scripts": {
+    "dev": "vite --port 5181",
+    "build": "vite build",
+    "preview": "vite preview --port 5181"
+  },
+  "dependencies": {
+    "denoiser": "workspace:*"
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.27.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4"
+  }
+}

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>denoiser — raw WebGPU</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e14;
+        --panel: #141922;
+        --panel-hover: #1b2230;
+        --border: #232b3a;
+        --text: #e6edf3;
+        --muted: #9aa7b8;
+        --accent: #90cdf4;
+        --good: #7ee787;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1080px; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+      h1 { font-size: 1.9rem; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
+      h1 .name { color: var(--accent); }
+      .tagline { color: var(--muted); font-size: 1.02rem; margin: 0 0 2rem; max-width: 44rem; }
+      code { color: var(--good); font-size: 0.92em; }
+
+      h2.section-label {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin: 0 0 0.6rem;
+        font-weight: 600;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.75rem;
+        align-items: flex-end;
+        margin-bottom: 1.25rem;
+      }
+      .control-group { display: flex; flex-direction: column; gap: 0.4rem; }
+
+      .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      .segmented button {
+        appearance: none; border: none; background: var(--panel); color: var(--text);
+        padding: 0.4rem 0.85rem; font: inherit; font-size: 0.85rem; cursor: pointer;
+        border-right: 1px solid var(--border);
+      }
+      .segmented button:last-child { border-right: none; }
+      .segmented button:hover { background: var(--panel-hover); }
+      .segmented button[aria-pressed="true"] { background: var(--accent); color: #0b0e14; font-weight: 600; }
+
+      .toggle-row { display: flex; align-items: center; gap: 0.5rem; min-height: 2rem; }
+      .toggle-row label {
+        font-size: 0.85rem; color: var(--text);
+        display: flex; align-items: center; gap: 0.45rem; cursor: pointer;
+      }
+      .toggle-row input[type="checkbox"]:disabled + span { color: var(--muted); }
+      .hint { color: var(--muted); font-size: 0.75rem; margin: 0; }
+
+      #stage {
+        position: relative;
+        width: 100%;
+        max-width: 512px;
+        aspect-ratio: 1 / 1;
+        margin: 0 0 0.75rem;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        background: #05070a;
+      }
+      #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      #spp-badge {
+        position: absolute; left: 10px; bottom: 10px; z-index: 2;
+        padding: 4px 10px; border-radius: 6px;
+        background: rgba(11,14,20,0.72); color: var(--good);
+        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.02em; pointer-events: none;
+      }
+      #view-badge {
+        position: absolute; right: 10px; bottom: 10px; z-index: 2;
+        padding: 4px 10px; border-radius: 6px;
+        background: rgba(11,14,20,0.72); color: var(--text);
+        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        pointer-events: none;
+      }
+
+      #status { color: var(--muted); font-size: 0.85rem; min-height: 1.3em; margin: 0 0 0.25rem; }
+      #status .model { color: var(--good); }
+      #loading { color: var(--accent); font-size: 0.85rem; min-height: 1.2em; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="name">denoiser</span> · raw WebGPU</h1>
+        <p class="tagline">
+          A single-file WGSL path tracer — plain WebGPU, no three.js, no libraries — sharing
+          <strong>one <code>GPUDevice</code></strong> with the denoiser. The scene accumulates noisy
+          samples into a linear-HDR texture; flip <em>Live denoise</em> to hand that texture straight
+          to <code>denoiser.denoiseTextures()</code> every N samples. This page is the reference for
+          integrating the denoiser with a custom engine.
+        </p>
+      </header>
+
+      <section class="controls">
+        <div class="control-group">
+          <h2 class="section-label" style="margin-bottom:0.3rem">View</h2>
+          <div class="toggle-row">
+            <label>
+              <input type="checkbox" id="denoise-toggle" />
+              <span>Live denoise</span>
+            </label>
+          </div>
+          <p class="hint">off = raw accumulation · on = denoised output</p>
+        </div>
+        <div class="control-group">
+          <h2 class="section-label" style="margin-bottom:0.3rem">Denoise every</h2>
+          <div id="interval-control" class="segmented"></div>
+        </div>
+        <div class="control-group">
+          <h2 class="section-label" style="margin-bottom:0.3rem">Aux inputs</h2>
+          <div class="toggle-row">
+            <label>
+              <input type="checkbox" id="aux-toggle" checked />
+              <span>+ albedo + normal</span>
+            </label>
+          </div>
+          <p class="hint" id="aux-hint">first-hit G-buffer from the same kernel</p>
+        </div>
+      </section>
+
+      <div id="stage">
+        <canvas id="canvas" width="512" height="512"></canvas>
+        <div id="spp-badge">0 spp</div>
+        <div id="view-badge">raw</div>
+      </div>
+
+      <p id="status"></p>
+      <p id="loading"></p>
+
+      <!-- Footer is injected by the shared demo chrome (demoFooter). -->
+
+      <script type="module" src="/src/main.ts"></script>
+    </div>
+  </body>
+</html>

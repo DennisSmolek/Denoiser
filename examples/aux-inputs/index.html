@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>denoiser — aux inputs</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e14;
+        --panel: #141922;
+        --panel-hover: #1b2230;
+        --border: #232b3a;
+        --text: #e6edf3;
+        --muted: #9aa7b8;
+        --accent: #90cdf4;
+        --good: #7ee787;
+        --bad: #f28b82;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1080px; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+      h1 { font-size: 1.9rem; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
+      h1 .name { color: var(--accent); }
+      .tagline { color: var(--muted); font-size: 1.02rem; margin: 0 0 2rem; max-width: 44rem; }
+
+      section { margin-bottom: 2.5rem; }
+      h2.section-title { font-size: 1.2rem; margin: 0 0 0.3rem; }
+      p.section-desc { color: var(--muted); font-size: 0.9rem; margin: 0 0 1.1rem; max-width: 46rem; }
+
+      h3.section-label {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin: 0 0 0.6rem;
+        font-weight: 600;
+      }
+
+      /* filmstrip: "what the network sees" */
+      .filmstrip {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 1rem;
+      }
+      figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; }
+      figure canvas { display: block; width: 100%; height: auto; border-radius: 6px; background: #05070a; }
+      figure figcaption { margin-top: 0.55rem; }
+      figure figcaption .t { font-weight: 600; font-size: 0.9rem; margin: 0 0 0.2rem; color: var(--text); }
+      figure figcaption .d { color: var(--muted); font-size: 0.78rem; margin: 0; line-height: 1.45; }
+
+      /* segmented control */
+      .segmented { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      .segmented button {
+        appearance: none;
+        border: none;
+        background: var(--panel);
+        color: var(--text);
+        padding: 0.5rem 0.9rem;
+        font: inherit;
+        font-size: 0.85rem;
+        cursor: pointer;
+        border-right: 1px solid var(--border);
+      }
+      .segmented button:last-child { border-right: none; }
+      .segmented button:hover { background: var(--panel-hover); }
+      .segmented button[aria-pressed="true"] { background: var(--accent); color: #0b0e14; font-weight: 600; }
+
+      .corruption-blurb { color: var(--muted); font-size: 0.85rem; margin: 0.6rem 0 1.25rem; max-width: 46rem; }
+
+      /* corrupted input planes */
+      #corrupted-planes {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+      }
+      #corrupted-planes .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+
+      /* compare row */
+      .compare-row { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.9rem; }
+      .compare-row figure { flex: 1 1 300px; }
+      .compare-row canvas { aspect-ratio: 1 / 1; }
+
+      #status { color: var(--muted); font-size: 0.85rem; min-height: 1.3em; margin: 0 0 0.25rem; }
+      #status .model { color: var(--good); }
+      #status .corruption-name { color: var(--bad); }
+      #status .corruption-name.is-baseline { color: var(--good); }
+      #loading { color: var(--accent); font-size: 0.85rem; min-height: 1.2em; margin: 0; }
+
+      /* prose footer */
+      .prose { max-width: 46rem; color: var(--muted); font-size: 0.92rem; }
+      .prose a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="name">denoiser</span> aux inputs</h1>
+        <p class="tagline">
+          What the network actually sees, and what breaks when the aux buffers don't follow
+          OIDN's conventions. Every corruption below is a real mistake this project made and fixed.
+        </p>
+      </header>
+
+      <section id="sec-sees">
+        <h2 class="section-title">What the network sees</h2>
+        <p class="section-desc">
+          The exact bytes passed to <code>denoiser.denoise()</code> for one scene — color at
+          4 samples/pixel plus the albedo and normal auxiliary buffers.
+        </p>
+        <div class="filmstrip">
+          <figure>
+            <canvas id="view-color" width="512" height="512"></canvas>
+            <figcaption>
+              <p class="t">color · 4 spp (noisy)</p>
+              <p class="d">sRGB-encoded bytes (default <code>srgb: true</code> decodes internally). This is the only buffer that is display-encoded.</p>
+            </figcaption>
+          </figure>
+          <figure>
+            <canvas id="view-albedo" width="512" height="512"></canvas>
+            <figcaption>
+              <p class="t">albedo</p>
+              <p class="d"><code>[0,1]</code> <strong>linear</strong> bytes — never sRGB-decoded, per <code>DenoiseImageOptions.albedo</code>.</p>
+            </figcaption>
+          </figure>
+          <figure>
+            <canvas id="view-normal" width="512" height="512"></canvas>
+            <figcaption>
+              <p class="t">normal · as-encoded</p>
+              <p class="d"><code>n·0.5+0.5</code> maps <code>[-1,1] → [0,1]</code>. Env/miss pixels are exactly 0 → flat 0.5 gray (visible at the top).</p>
+            </figcaption>
+          </figure>
+          <figure>
+            <canvas id="view-normal-decoded" width="512" height="512"></canvas>
+            <figcaption>
+              <p class="t">normal · decoded length</p>
+              <p class="d">Debug view: decodes back to <code>[-1,1]</code> and colors by vector length — blue = 0 (correct env), green = 1 (valid unit normal), red &gt; 1 (broken encoding).</p>
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="sec-break">
+        <h2 class="section-title">Break it and see</h2>
+        <p class="section-desc">
+          Three toggles reproduce real aux-generation bugs this project debugged (see
+          <code>docs/status/STATUS.md</code>). Each is applied client-side to the correct assets
+          above, then denoised with the same model — compare against the correct-aux baseline.
+        </p>
+        <div id="corruption-control" class="segmented"></div>
+        <p id="corruption-blurb" class="corruption-blurb"></p>
+
+        <h3 class="section-label">Corrupted input(s)</h3>
+        <div id="corrupted-planes"></div>
+
+        <h3 class="section-label">Result</h3>
+        <div class="compare-row">
+          <figure>
+            <canvas id="canvas-baseline" width="512" height="512"></canvas>
+            <figcaption><p class="t">correct aux (baseline)</p></figcaption>
+          </figure>
+          <figure>
+            <canvas id="canvas-active" width="512" height="512"></canvas>
+            <figcaption><p class="t">active corruption</p></figcaption>
+          </figure>
+        </div>
+
+        <p id="status"></p>
+        <p id="loading"></p>
+      </section>
+
+      <section id="sec-why" class="prose">
+        <h2 class="section-title" style="font-size:1.05rem">Why this matters</h2>
+        <p>
+          OIDN's aux inputs are a contract, not a suggestion: albedo must stay linear because the
+          network was trained on linear statistics, and normals must be exactly zero off-surface
+          because that's the signal the network uses to recognize "nothing hit here — trust color
+          alone." Violate either one and the network doesn't error — it just denoises worse,
+          confidently, which is what makes these bugs easy to ship and hard to notice. See the
+          <a href="https://github.com/pmndrs/denoiser/blob/main/docs/site/guides/generating-aux-inputs.mdx">generating aux inputs guide</a>
+          for the G-buffer recipes that avoid all three, and the
+          <a href="../gallery/">gallery demo</a> for aux inputs used correctly at scale.
+        </p>
+      </section>
+
+      <!-- Footer is injected by the shared demo chrome (demoFooter). -->
+
+      <script type="module" src="/src/main.ts"></script>
+    </div>
+  </body>
+</html>

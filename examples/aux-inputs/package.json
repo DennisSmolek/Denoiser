@@ -1,0 +1,20 @@
+{
+  "name": "aux-inputs",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "What the network sees: color/albedo/normal exactly as fed to the model, plus client-side corruption toggles reproducing real aux-generation mistakes (env-gradient normals, sRGB albedo, missing aux).",
+  "scripts": {
+    "dev": "vite --port 5180",
+    "build": "vite build",
+    "preview": "vite preview --port 5180"
+  },
+  "dependencies": {
+    "denoiser": "workspace:*"
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.27.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4"
+  }
+}
