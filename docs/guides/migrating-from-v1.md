@@ -13,10 +13,10 @@ device), every run is fully described by its arguments.
 
 | | v1 | v2 |
 |---|---|---|
-| runtime | TensorFlow.js (WebGL or WebGPU backend) | onnxruntime-web ≥ 1.27 (peer dep), WebGPU only |
+| runtime | TensorFlow.js (WebGL or WebGPU backend) | onnxruntime-web ≥ 1.27 (regular dependency), WebGPU only |
 | browser | WebGL2 fallback existed | **WebGPU required** (no fallback) |
 | weights | `.tza` files (`/tzas` CDN dir) | converted `.onnx` models (`/models`), fp32 + fp16 |
-| install | `npm i denoiser` | `npm i denoiser onnxruntime-web` |
+| install | `npm i denoiser` | `npm i denoiser` |
 
 If you must support non-WebGPU browsers, stay on v1 (0.0.11) for those users —
 v2 throws `DenoiserUnsupportedError` where WebGPU/features are missing.

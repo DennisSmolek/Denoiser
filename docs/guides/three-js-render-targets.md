@@ -138,6 +138,7 @@ Returns `GPUTexture` — your `output` if given, else an **engine-owned
 | `maxRunPixels` | `number` | `2048*1152` | above this, tile instead of whole-frame |
 | `batch` | `number` | `8` | max tiles per model run in tiled mode |
 | `graphCapture` | `boolean` | `false` | opt-in ORT graph capture — **leave off** (no measured gain; ORT 1.27 crashes after ~150–250 replays) |
+| `splitAux` | `boolean` | `true` | runs the first conv of aux models in WGSL to work around an onnxruntime-web WebGPU bug; fetches `<model>.tail.onnx` + `<model>.enc0.bin`; falls back to the plain model with a one-time warning if artifacts are missing |
 
 ## 3. Getting the result OUT (three renders it)
 

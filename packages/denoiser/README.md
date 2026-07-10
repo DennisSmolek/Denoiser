@@ -86,7 +86,8 @@ Coming from the 0.x TFJS API: [`docs/guides/migrating-from-v1.md`](../../docs/gu
 - Everything between input and output stays on the GPU.
 
 Measured warm (M-series Mac, Chrome, `fast` quality): 512² **13.7 ms**,
-720p **45 ms**, 1080p **104 ms** (fp16). `balanced` quality ≈ 2.1× those.
+720p **45 ms**, 1080p **104 ms** (fp16). `balanced` is meaningfully slower;
+benchmark with `examples/bench` for your sizes.
 
 ## Device sharing & lifetime — READ THIS if you pass `denoiser.device` around
 
@@ -115,7 +116,7 @@ tracer's pipelines.
 
 | | |
 |---|---|
-| `await Denoiser.create(opts?)` | `precision`, `quality`, `weightsUrl`, `wasmPaths`, `maxRunPixels`, `batch`, `graphCapture` |
+| `await Denoiser.create(opts?)` | `precision`, `quality`, `weightsUrl`, `wasmPaths`, `maxRunPixels`, `batch`, `graphCapture`, `splitAux` |
 | `denoise(imageLike, opts?)` | → `ImageData`; opts: `albedo`, `normal`, `srgb`, `flipY`, `onProgress` |
 | `denoiseToFloat(imageLike, opts?)` | → normalized `Float32Array` |
 | `denoiseTextures(opts)` | → `GPUTexture`; opts: `color`, `albedo`, `normal`, `hdr`, `inputScale`, `inputFlipY`, `auxInputFlipY`, `output`, `transfer`, `outputFlipY` |
@@ -162,10 +163,13 @@ const denoiser = await Denoiser.create({ weightsUrl: '/models' });
 - **Default scheme: plain git + jsDelivr's GitHub endpoint.** The models are
   committed as ordinary git blobs (NOT LFS — jsDelivr can't resolve LFS
   pointers) in a weights branch/repo and served version-pinned from
-  `https://cdn.jsdelivr.net/gh/pmndrs/denoiser-weights@models-v1/models/<file>.onnx`.
+  `https://cdn.jsdelivr.net/gh/pmndrs/denoiser-weights@models-v2/models/<file>.onnx`.
   Verified: `access-control-allow-origin: *`, range requests, multi-provider
   CDN. Per-file cap is 20–50 MB depending on report — our largest file is
-  14.7 MB, under even the stricter figure.
+  14.7 MB, under even the stricter figure. `models-v2` is `models-v1` plus the
+  `*.tail.onnx`/`*.enc0.bin` split-aux artifacts that the default-on
+  `splitAux` option fetches for the 9-channel aux models; self-hosters should
+  mirror `models-v2` (or set `splitAux: false`).
 - **GitHub Pages** also works (verified CORS `*`, Fastly-fronted; the 144 MB
   set fits the 1 GB site limit) if you'd rather publish a branch than rely on
   jsDelivr.
