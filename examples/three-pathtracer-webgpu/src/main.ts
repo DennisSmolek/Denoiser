@@ -10,7 +10,9 @@ import { fsr1 } from 'three/addons/tsl/display/FSR1Node.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { WebGPUPathTracer } from 'three-gpu-pathtracer/webgpu';
 import { GradientEquirectTexture } from 'three-gpu-pathtracer/src/textures/GradientEquirectTexture.js';
+import { vec4 } from 'three/tsl';
 import { Denoiser } from 'denoiser';
+import { installGalleryCapture } from '../../_shared/gallery-capture';
 
 const status = document.querySelector<HTMLPreElement>('#status')!;
 const log = (m: string) => { status.textContent += m + '\n'; console.log(m); };
@@ -367,6 +369,7 @@ async function main() {
   };
 
   const loop = () => {
+    if ((window as unknown as Record<string, unknown>).__capturing) { requestAnimationFrame(loop); return; }
     const s = Math.floor(pathTracer.samples ?? 0);
     if (s < maxSamples()) pathTracer.renderSample();
     const settled = performance.now() - lastRestart > settleMs();
@@ -453,6 +456,17 @@ async function main() {
   // Accumulates a fixed sample count, rasterizes the G-buffer, runs ONE aux
   // denoise, and returns { noise, dataUrl }. Drive two page loads (?split=0 vs
   // ?split=1&aux=1) and compare the noise metric + images.
+  // Gallery-asset capture (Phase B B1.3): spp ladder + reference + albedo/normal
+  // AOVs for the gallery demo. Uses a CORRECT normal pass (background off) rather
+  // than the buggy combined-MRT aux above, so env pixels read as normal=0.
+  installGalleryCapture({
+    THREE, tsl: { mrt, diffuseColor, normalView, texture, vec4 },
+    renderer, device, pathTracer, scene, camera,
+    getTracerTexture, backendGet, res: RES,
+    sceneId: 'spheres', title: 'Spheres (procedural)',
+    log,
+  });
+
   if (appParams.has('aux')) auxCheckbox.checked = true;
   (window as unknown as Record<string, unknown>).__captureAux = async (targetSamples?: number) => {
     const target = targetSamples ?? maxSamples();

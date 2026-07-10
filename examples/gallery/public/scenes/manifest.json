@@ -1,0 +1,50 @@
+{
+  "scenes": [
+    {
+      "id": "spheres",
+      "title": "Spheres (procedural)",
+      "width": 512,
+      "height": 512,
+      "spp": [
+        1,
+        2,
+        4,
+        8,
+        16
+      ],
+      "color": {
+        "1": "spp1.png",
+        "2": "spp2.png",
+        "4": "spp4.png",
+        "8": "spp8.png",
+        "16": "spp16.png"
+      },
+      "albedo": "albedo.png",
+      "normal": "normal.png",
+      "reference": "reference.png"
+    },
+    {
+      "id": "eiffel",
+      "title": "LDraw Eiffel Tower",
+      "width": 512,
+      "height": 512,
+      "spp": [
+        1,
+        2,
+        4,
+        8,
+        16
+      ],
+      "color": {
+        "1": "spp1.png",
+        "2": "spp2.png",
+        "4": "spp4.png",
+        "8": "spp8.png",
+        "16": "spp16.png"
+      },
+      "albedo": "albedo.png",
+      "normal": "normal.png",
+      "reference": "reference.png"
+    }
+  ]
+}

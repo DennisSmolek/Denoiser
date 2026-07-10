@@ -15,6 +15,7 @@ import { LDrawUtils } from 'three/addons/utils/LDrawUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { WebGPUPathTracer } from 'three-gpu-pathtracer/webgpu';
 import { Denoiser } from 'denoiser';
+import { installGalleryCapture } from '../../_shared/gallery-capture';
 
 const status = document.querySelector<HTMLPreElement>('#status')!;
 const modeLabel = document.querySelector<HTMLSpanElement>('#mode')!;
@@ -208,14 +209,18 @@ async function main() {
     return backendGet(threeTexture);
   };
 
-  // Denoised overlay canvas (webgpu context, plain texture copy).
+  // Denoised overlay canvas (webgpu context, plain texture copy). ?headless=1
+  // skips it — a second getContext('webgpu')+configure stalls headless Chrome
+  // (same as three-pathtracer-webgpu). The gallery capture doesn't need it.
+  const headless = new URLSearchParams(location.search).has('headless');
   const overlayCanvas = document.querySelector<HTMLCanvasElement>('#denoised')!;
-  const overlayCtx = overlayCanvas.getContext('webgpu')!;
-  overlayCtx.configure({
+  const overlayCtx = headless ? undefined : overlayCanvas.getContext('webgpu')!;
+  overlayCtx?.configure({
     device, format: 'rgba8unorm',
     usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
   });
   const blitToOverlay = (tex: GPUTexture) => {
+    if (!overlayCtx) return;
     const enc = device.createCommandEncoder();
     enc.copyTextureToTexture({ texture: tex }, { texture: overlayCtx.getCurrentTexture() },
       { width: Math.min(tex.width, RES), height: Math.min(tex.height, RES) });
@@ -401,9 +406,20 @@ async function main() {
   (window as unknown as Record<string, unknown>).__app =
     { pathTracer, renderer, denoiser, scene, camera, controls, albedoRT, normalRT, backendGet, renderGBuffer };
 
+  // Gallery-asset capture (Phase B B1.3): spp ladder + reference + albedo/normal
+  // AOVs for the gallery demo (tools/capture-gallery, or ?capture=1 headed button).
+  installGalleryCapture({
+    THREE, tsl: { mrt, diffuseColor, normalView, texture: textureNode, vec4 },
+    renderer, device, pathTracer, scene, camera,
+    getTracerTexture, backendGet, res: RES,
+    sceneId: 'eiffel', title: 'LDraw Eiffel Tower',
+    log,
+  });
+
   let loggedLoopError = false;
   const loop = () => {
     requestAnimationFrame(loop);
+    if ((window as unknown as Record<string, unknown>).__capturing) return;
     try {
       loopBody();
     } catch (e) {

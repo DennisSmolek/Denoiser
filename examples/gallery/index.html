@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>denoiser — gallery</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e14;
+        --panel: #141922;
+        --panel-hover: #1b2230;
+        --border: #232b3a;
+        --text: #e6edf3;
+        --muted: #9aa7b8;
+        --accent: #90cdf4;
+        --good: #7ee787;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1080px; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+      h1 { font-size: 1.9rem; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
+      h1 .name { color: var(--accent); }
+      .tagline { color: var(--muted); font-size: 1.02rem; margin: 0 0 2rem; max-width: 42rem; }
+
+      h2.section-label {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin: 0 0 0.6rem;
+        font-weight: 600;
+      }
+
+      /* scene picker */
+      #scenes {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1.75rem;
+      }
+      .scene-card {
+        display: block;
+        text-align: left;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.75rem 0.9rem;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+        transition: background 0.15s ease, border-color 0.15s ease;
+      }
+      .scene-card:hover { background: var(--panel-hover); }
+      .scene-card[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-hover); }
+      .scene-card .t { font-weight: 600; font-size: 0.95rem; margin: 0 0 0.15rem; }
+      .scene-card .d { color: var(--muted); font-size: 0.8rem; margin: 0; }
+
+      /* controls row */
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.75rem;
+        align-items: flex-end;
+        margin-bottom: 1.25rem;
+      }
+      .control-group { display: flex; flex-direction: column; gap: 0.4rem; }
+
+      .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      .segmented button {
+        appearance: none;
+        border: none;
+        background: var(--panel);
+        color: var(--text);
+        padding: 0.4rem 0.85rem;
+        font: inherit;
+        font-size: 0.85rem;
+        cursor: pointer;
+        border-right: 1px solid var(--border);
+      }
+      .segmented button:last-child { border-right: none; }
+      .segmented button:hover { background: var(--panel-hover); }
+      .segmented button[aria-pressed="true"] { background: var(--accent); color: #0b0e14; font-weight: 600; }
+
+      .toggle-row { display: flex; align-items: center; gap: 0.5rem; }
+      .toggle-row label {
+        font-size: 0.85rem;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        cursor: pointer;
+      }
+      .toggle-row input[type="checkbox"]:disabled + span { color: var(--muted); }
+      .hint { color: var(--muted); font-size: 0.75rem; margin: 0; }
+
+      button.ref-btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        padding: 0.4rem 0.85rem;
+        border-radius: 8px;
+        font: inherit;
+        font-size: 0.85rem;
+        cursor: pointer;
+        touch-action: none;
+        user-select: none;
+      }
+      button.ref-btn:hover { background: var(--panel-hover); }
+      button.ref-btn:active { background: var(--accent); color: #0b0e14; }
+
+      /* comparison viewer */
+      #compare {
+        position: relative;
+        width: 100%;
+        max-width: 640px;
+        aspect-ratio: 1 / 1;
+        margin: 0 0 0.75rem;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        background: #05070a;
+        touch-action: none;
+        cursor: ew-resize;
+        user-select: none;
+      }
+      #compare canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #canvas-reference { z-index: 3; display: none; }
+      #canvas-denoised { z-index: 2; }
+      #canvas-noisy { z-index: 1; }
+      #divider {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 0;
+        z-index: 4;
+        pointer-events: none;
+      }
+      #divider::before {
+        content: "";
+        position: absolute;
+        top: 0; bottom: 0; left: -1px;
+        width: 2px;
+        background: #fff;
+        box-shadow: 0 0 6px rgba(0,0,0,0.6);
+      }
+      #divider::after {
+        content: "\2194";
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        width: 30px; height: 30px;
+        border-radius: 50%;
+        background: #fff;
+        color: #0b0e14;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        box-shadow: 0 1px 6px rgba(0,0,0,0.5);
+      }
+
+      #status { color: var(--muted); font-size: 0.85rem; min-height: 1.3em; margin: 0 0 0.25rem; }
+      #status .model { color: var(--good); }
+      #loading { color: var(--accent); font-size: 0.85rem; min-height: 1.2em; margin: 0; }
+
+      pre {
+        background: #141922;
+        border: 1px solid var(--border);
+        padding: 0.9rem 1rem;
+        border-radius: 8px;
+        overflow-x: auto;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="name">denoiser</span> gallery</h1>
+        <p class="tagline">
+          Before/after comparison across sample counts and aux inputs, denoised live in the
+          browser over WebGPU. Drag the divider — the right side is real-time
+          <code>denoiser.denoise()</code> output, not a canned image.
+        </p>
+      </header>
+
+      <section>
+        <h2 class="section-label">Scene</h2>
+        <div id="scenes"></div>
+      </section>
+
+      <section class="controls">
+        <div class="control-group">
+          <h2 class="section-label" style="margin-bottom:0.3rem">Samples / pixel</h2>
+          <div id="spp-control" class="segmented"></div>
+        </div>
+        <div class="control-group">
+          <h2 class="section-label" style="margin-bottom:0.3rem">Aux inputs</h2>
+          <div class="toggle-row">
+            <label>
+              <input type="checkbox" id="aux-toggle" disabled />
+              <span>+ albedo + normal (splitAux)</span>
+            </label>
+          </div>
+          <p class="hint" id="aux-hint">this scene has no aux buffers</p>
+        </div>
+        <div class="control-group">
+          <h2 class="section-label" style="margin-bottom:0.3rem">Reference</h2>
+          <button class="ref-btn" id="ref-btn" disabled>hold to peek converged frame</button>
+        </div>
+      </section>
+
+      <div id="compare">
+        <canvas id="canvas-noisy" width="512" height="512"></canvas>
+        <canvas id="canvas-denoised" width="512" height="512"></canvas>
+        <canvas id="canvas-reference" width="512" height="512"></canvas>
+        <div id="divider"></div>
+      </div>
+
+      <p id="status"></p>
+      <p id="loading"></p>
+
+      <!-- Footer is injected by the shared demo chrome (demoFooter). -->
+
+      <script type="module" src="/src/main.ts"></script>
+    </div>
+  </body>
+</html>

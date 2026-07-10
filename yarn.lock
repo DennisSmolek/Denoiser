@@ -1614,6 +1614,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"gallery@workspace:examples/gallery":
+  version: 0.0.0-use.local
+  resolution: "gallery@workspace:examples/gallery"
+  dependencies:
+    denoiser: "workspace:*"
+    onnxruntime-web: "npm:^1.27.0"
+    typescript: "npm:^5.9.3"
+    vite: "npm:^8.1.4"
+  languageName: unknown
+  linkType: soft
+
 "glob-parent@npm:^5.1.2":
   version: 5.1.2
   resolution: "glob-parent@npm:5.1.2"

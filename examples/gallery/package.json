@@ -1,0 +1,20 @@
+{
+  "name": "gallery",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Flagship quality demo: before/after comparison slider, spp ladder, and the aux (albedo+normal) toggle across multiple scenes.",
+  "scripts": {
+    "dev": "vite --port 5179",
+    "build": "vite build",
+    "preview": "vite preview --port 5179"
+  },
+  "dependencies": {
+    "denoiser": "workspace:*"
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.27.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4"
+  }
+}
