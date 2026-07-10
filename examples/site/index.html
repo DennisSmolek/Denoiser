@@ -62,7 +62,8 @@
         border-color: #33405a;
         transform: translateY(-2px);
       }
-      /* Screenshot slot — no images yet; a labelled placeholder holds the space. */
+      /* Screenshot slot — either a labelled placeholder (no image yet) or an
+         actual <img class="shot">, cropped to fill the same box. */
       .shot {
         aspect-ratio: 16 / 9;
         display: flex;
@@ -80,6 +81,13 @@
         font-size: 0.78rem;
         letter-spacing: 0.08em;
         text-transform: uppercase;
+      }
+      img.shot {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
+        display: block;
       }
       .card-body { padding: 1rem 1.1rem 1.2rem; }
       .card-title {
@@ -123,7 +131,7 @@
 
       <main class="grid">
         <a class="card" href="./hello-world/">
-          <div class="shot">screenshot soon</div>
+          <img class="shot" src="./shots/hello-world.png" alt="hello-world demo screenshot: noisy vs denoised spheres" loading="lazy">
           <div class="card-body">
             <p class="card-title">Hello world <span class="arrow">→</span></p>
             <p class="card-desc">
@@ -133,8 +141,19 @@
           </div>
         </a>
 
+        <a class="card" href="./gallery/">
+          <img class="shot" src="./shots/gallery.png" alt="gallery demo screenshot: before/after divider on the LDraw Eiffel Tower scene" loading="lazy">
+          <div class="card-body">
+            <p class="card-title">Before / after gallery <span class="arrow">→</span></p>
+            <p class="card-desc">
+              Real path-traced scenes at 1–16 samples per pixel: drag the divider,
+              step the noise ladder, toggle albedo+normal guidance live.
+            </p>
+          </div>
+        </a>
+
         <a class="card" href="./ldraw-eiffel/">
-          <div class="shot">screenshot soon</div>
+          <img class="shot" src="./shots/ldraw-eiffel.png" alt="LDraw Eiffel Tower demo screenshot: noisy vs denoised path-traced render" loading="lazy">
           <div class="card-body">
             <p class="card-title">LDraw Eiffel Tower <span class="arrow">→</span></p>
             <p class="card-desc">
@@ -145,7 +164,7 @@
         </a>
 
         <a class="card" href="./three-pathtracer-webgpu/">
-          <div class="shot">screenshot soon</div>
+          <img class="shot" src="./shots/three-pathtracer-webgpu.png" alt="three.js path tracer demo screenshot: noisy vs denoised spheres" loading="lazy">
           <div class="card-body">
             <p class="card-title">three.js path tracer <span class="arrow">→</span></p>
             <p class="card-desc">
@@ -156,7 +175,7 @@
         </a>
 
         <a class="card" href="./bench/">
-          <div class="shot">screenshot soon</div>
+          <img class="shot" src="./shots/bench.jpg" alt="benchmark harness screenshot: per-stage timings and noisy/denoised comparison" loading="lazy">
           <div class="card-body">
             <p class="card-title">Benchmark <span class="arrow">→</span></p>
             <p class="card-desc">
