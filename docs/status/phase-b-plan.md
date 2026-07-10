@@ -5,7 +5,13 @@ _Last updated: 2026-07-10. The detailed execution plan for
 publish. FSR3 demos are sequenced last (the companion lib is being finalized
 in parallel)._
 
-> **STATUS 2026-07-10: B0–B4 code work COMPLETE.** Live: 9 demos at
+> **STATUS 2026-07-10 (final): PHASE B COMPLETE — ALL 10 demos + docs live.**
+> Demo #8 (upscale-pipeline, `@pmndrs/upscaler`) landed same day the lib
+> shipped; ONNX issue filed (microsoft/onnxruntime#29651); backlog moved to
+> GitHub issues pmndrs/denoiser#1–12. Launch = issue #12 (redirect PR, npm
+> publish, announce). Earlier same-day snapshot below:
+>
+> Live: 9 demos at
 > https://pmndrs.github.io/denoiser/ (hello-world, gallery, aux-inputs,
 > webgpu-raw, babylon, realtime-compare, bench, ldraw-eiffel,
 > three-pathtracer-webgpu — all with screenshots) + the 14-page docs site at
