@@ -8,9 +8,11 @@
 //   ensureWebGPU(el?)  -> Promise<boolean>   feature-detect + friendly banner on failure
 //   statsOverlay()     -> { frame(ms) }      fixed-corner ms/FPS readout
 //   demoFooter(name)   -> void               small footer (name, source link, back to index)
+//   pathtracerNote()   -> void               dismissible note re: the unreleased pathtracer branch
 
 const REPO_URL = 'https://github.com/pmndrs/denoiser';
 const SUPPORTED_BROWSERS = 'Chrome 113+, Edge 113+, or Safari 26+ (Technology Preview)';
+const PATHTRACER_URL = 'https://github.com/gkjohnson/three-gpu-pathtracer/tree/webgpu-pathtracer';
 
 /**
  * Feature-detect WebGPU (navigator.gpu + a real adapter). On failure, injects a
@@ -110,6 +112,40 @@ export function demoFooter(name: string): void {
     <a href="${sourceUrl}" style="color:#90cdf4">source ↗</a>
     <a href="../" style="color:#90cdf4">← all demos</a>`;
   document.body.appendChild(footer);
+}
+
+/**
+ * Small dismissible note (call near `demoFooter`, e.g. right after it): the
+ * WebGPU path tracer these demos drive is gkjohnson's unreleased
+ * `webgpu-pathtracer` branch of three-gpu-pathtracer, SHA-pinned in
+ * package.json (not a released version) — links to the branch for context.
+ * Dismissal is remembered in localStorage so it doesn't nag on every visit.
+ */
+export function pathtracerNote(): void {
+  const KEY = 'denoiser-chrome:pathtracer-note-dismissed';
+  try {
+    if (localStorage.getItem(KEY) === '1') return;
+  } catch {
+    /* localStorage unavailable (private mode etc.) — just show the note every time */
+  }
+  const note = document.createElement('div');
+  note.setAttribute('data-denoiser-chrome', 'pathtracer-note');
+  note.style.cssText = [
+    'margin-top:1rem', 'padding:0.6rem 0.9rem', 'border-radius:8px',
+    'background:rgba(144,205,244,0.08)', 'border:1px solid rgba(144,205,244,0.25)',
+    'color:#a0aec0', 'font:0.8rem/1.5 system-ui,-apple-system,sans-serif',
+    'display:flex', 'gap:0.75rem', 'align-items:flex-start', 'justify-content:space-between',
+  ].join(';');
+  note.innerHTML = `
+    <span>Path tracing here runs on gkjohnson's unreleased
+      <a href="${PATHTRACER_URL}" target="_blank" rel="noopener" style="color:#90cdf4">three-gpu-pathtracer
+      <code>webgpu-pathtracer</code> branch</a>, pinned to a fixed commit — expect rough edges.</span>
+    <button type="button" aria-label="dismiss" style="flex:none;background:none;border:none;color:#718096;cursor:pointer;font-size:1rem;line-height:1;padding:0 0.2rem">&times;</button>`;
+  note.querySelector('button')!.addEventListener('click', () => {
+    try { localStorage.setItem(KEY, '1'); } catch { /* ignore */ }
+    note.remove();
+  });
+  document.body.appendChild(note);
 }
 
 function escapeHtml(s: string): string {

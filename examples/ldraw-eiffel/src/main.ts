@@ -16,6 +16,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { WebGPUPathTracer } from 'three-gpu-pathtracer/webgpu';
 import { Denoiser } from 'denoiser';
 import { installGalleryCapture } from '../../_shared/gallery-capture';
+import { ensureWebGPU, demoFooter, pathtracerNote } from '../../_shared/chrome';
 
 const status = document.querySelector<HTMLPreElement>('#status')!;
 const modeLabel = document.querySelector<HTMLSpanElement>('#mode')!;
@@ -148,7 +149,7 @@ function patchWebGPUForMaxLimits() {
 }
 
 async function main() {
-  if (!('gpu' in navigator)) { log('ERROR: WebGPU not available.'); return; }
+  if (!(await ensureWebGPU())) return;
   patchWebGPUForMaxLimits();
 
   // 1) Denoiser first, so ORT owns the GPUDevice we then share with three.js.
@@ -485,4 +486,6 @@ async function main() {
   });
 }
 
+demoFooter('ldraw-eiffel');
+pathtracerNote();
 main().catch((e) => log('ERROR: ' + (e as Error).message));

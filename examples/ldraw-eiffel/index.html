@@ -17,10 +17,15 @@
       #reveal { position: absolute; left: 0; bottom: -30px; width: 100%; }
       #mode { position: absolute; top: 6px; left: 6px; font-size: 11px; background: #0008;
               padding: 2px 6px; border-radius: 3px; pointer-events: none; }
+      .tagline { color: #a0aec0; max-width: 60ch; margin: 0 0 1.5rem; }
     </style>
   </head>
   <body>
     <h1>LDraw Eiffel Tower — orbit (raster) → rest (path trace) → denoise</h1>
+    <p class="tagline">
+      Drag to orbit — path tracing and the denoiser kick in automatically once the camera
+      comes to rest.
+    </p>
     <label>max samples <input id="maxSamples" type="number" value="32" min="1" max="500" style="width:5rem"></label>
     <label>quality <select id="quality"><option value="fast">fast (small)</option><option value="balanced" selected>balanced</option></select></label>
     <label><input id="aux" type="checkbox" checked> G-buffer aux (albedo+normal)</label>

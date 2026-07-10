@@ -13,6 +13,7 @@ import { GradientEquirectTexture } from 'three-gpu-pathtracer/src/textures/Gradi
 import { vec4 } from 'three/tsl';
 import { Denoiser } from 'denoiser';
 import { installGalleryCapture } from '../../_shared/gallery-capture';
+import { ensureWebGPU, demoFooter, pathtracerNote } from '../../_shared/chrome';
 
 const status = document.querySelector<HTMLPreElement>('#status')!;
 const log = (m: string) => { status.textContent += m + '\n'; console.log(m); };
@@ -82,14 +83,16 @@ function patchWebGPUForMaxLimits() {
 }
 
 async function main() {
-  if (!('gpu' in navigator)) { log('ERROR: WebGPU not available.'); return; }
+  if (!(await ensureWebGPU())) return;
   patchWebGPUForMaxLimits();
 
   // 1) Denoiser first, so ORT owns the GPUDevice we then share with three.js.
-  // ?split=1 turns on the aux split-graph workaround (WGSL enc_conv0 + tail) for
-  // the 9ch cleanAux models — compare against ?split=0 to see the ORT-web bug.
+  // splitAux (the aux split-graph workaround, WGSL enc_conv0 + tail) is ON by
+  // default — same as the Denoiser package default — so the 9ch cleanAux path
+  // is correct out of the box. Pass ?split=0 to force the plain (buggy) graph
+  // and reproduce the ORT-web WebGPU aux bug for comparison.
   const appParams = new URLSearchParams(location.search);
-  const splitAux = appParams.has('split') && appParams.get('split') !== '0';
+  const splitAux = !appParams.has('split') || appParams.get('split') !== '0';
   // ?headless=1 skips the compare-overlay WebGPU canvas (a second getContext
   // ('webgpu')+configure that stalls in headless Chrome). __captureAux() reads
   // the denoise output texture directly and doesn't need the overlay.
@@ -236,6 +239,15 @@ async function main() {
     document.querySelectorAll<HTMLButtonElement>('#denoise, #denoiseGpu')
       .forEach((b) => { b.disabled = liveCheckbox.checked; });
   });
+
+  // Public default: turn live denoise on so the library shows itself off
+  // immediately, no click required. Skipped under ?headless=1 — the
+  // StorageTexture/overlay zero-copy path is intentionally unavailable there
+  // (capture-gallery doesn't need it, and runLiveDenoise() requires it).
+  if (!headless && denoisedGpuTex) {
+    liveCheckbox.checked = true;
+    liveCheckbox.dispatchEvent(new Event('change'));
+  }
 
   // G-buffer aux (TODO 2c): rasterize the SAME scene once into an MRT target —
   // albedo = material base color (unlit), normal = view-space normal [-1,1].
@@ -454,8 +466,8 @@ async function main() {
 
   // 6) Deterministic headless capture for the split-vs-baseline aux comparison.
   // Accumulates a fixed sample count, rasterizes the G-buffer, runs ONE aux
-  // denoise, and returns { noise, dataUrl }. Drive two page loads (?split=0 vs
-  // ?split=1&aux=1) and compare the noise metric + images.
+  // denoise, and returns { noise, dataUrl }. Drive two page loads (default
+  // splitAux=1 vs ?split=0&aux=1) and compare the noise metric + images.
   // Gallery-asset capture (Phase B B1.3): spp ladder + reference + albedo/normal
   // AOVs for the gallery demo. Uses a CORRECT normal pass (background off) rather
   // than the buggy combined-MRT aux above, so env pixels read as normal=0.
@@ -511,4 +523,6 @@ async function main() {
   };
 }
 
+demoFooter('three-pathtracer-webgpu');
+pathtracerNote();
 main().catch((e) => log('ERROR: ' + (e as Error).message));
