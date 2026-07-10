@@ -83,9 +83,10 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
       transferred (media URL serves real binaries). Personal repo
       (`DennisSmolek/Denoiser`) retains a full backup of every branch.
 - [x] **Models hosted: `pmndrs/denoiser-weights`** — 46 `.onnx` (144 MB) as
-      plain git blobs (no LFS), tag `models-v1`, default `weightsUrl` in
-      `weights.ts` points at
-      `https://cdn.jsdelivr.net/gh/pmndrs/denoiser-weights@models-v1/models`.
+      plain git blobs (no LFS). Tags are immutable `models-vN`; **current default
+      is `models-v2`** (= v1 + the splitAux tail/enc0 artifacts) — `weights.ts`
+      points at
+      `https://cdn.jsdelivr.net/gh/pmndrs/denoiser-weights@models-v2/models`.
       **Verified live**: CORS `*`, range requests, byte-identical full
       downloads (jsDelivr transparently gzips fp32 models ~40%). Regeneration
       + retag policy documented in that repo's README. Verified dead ends

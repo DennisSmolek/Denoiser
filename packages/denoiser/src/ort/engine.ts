@@ -568,13 +568,13 @@ export class DenoiseEngine {
       let tex = opts.outputTexture;
       if (tex) {
         if (tex.width !== w || tex.height !== h) {
-          throw new Error(`Denoiser: outputTexture is ${tex.width}x${tex.height}, image is ${w}x${h}`);
+          throw new DenoiserInputError(`Denoiser: outputTexture is ${tex.width}x${tex.height}, image is ${w}x${h}`);
         }
         if (!(tex.usage & GPUTextureUsage.STORAGE_BINDING)) {
-          throw new Error('Denoiser: outputTexture needs STORAGE_BINDING usage');
+          throw new DenoiserInputError('Denoiser: outputTexture needs STORAGE_BINDING usage');
         }
         if (tex.format !== 'rgba8unorm' && tex.format !== 'rgba16float') {
-          throw new Error(`Denoiser: outputTexture must be rgba8unorm or rgba16float (got ${tex.format})`);
+          throw new DenoiserInputError(`Denoiser: outputTexture must be rgba8unorm or rgba16float (got ${tex.format})`);
         }
       } else {
         tex = this.ensureOutTexture(w, h);

@@ -11,14 +11,19 @@ what the library is actually for, and the phased plan to a public v2 launch._
 | | v1 (TFJS) | v2 (ORT-web WebGPU) |
 |---|---|---|
 | Engine | TFJS WebGL/WebGPU, runtime graph build from TZA | ONNX on WebGPU EP, offline-converted models |
-| 512² warm | 37.6 ms (9 tiles) | **13.7 ms** (whole-frame, fp16) — 2.7× |
-| 1080p warm | 188 ms (45 tiles) | **104 ms** (whole-frame) — 1.8× |
+| 512² warm | 37.6 ms (9 tiles)* | **13.7 ms** (whole-frame, fp16) — 2.7× |
+| 1080p warm | 188 ms (45 tiles)* | **104 ms** (whole-frame) — 1.8× |
 | Precision | fp32 only usable | fp16 end-to-end (53.5 dB vs fp32) |
 | GPU interop | WebGLTexture marshaling, copies | zero-copy texture in/out on a shared `GPUDevice` |
 | Aux (albedo+normal) | present, quality never verified | **verified to 1–2 LSB vs native OIDN** (splitAux workaround for the upstream ORT bug) |
 | API | stateful (set inputs, execute) | stateless per-call `create`/`denoise`/`denoiseTextures` |
 | Browser coverage | WebGL fallback = near-universal | **WebGPU only** — v1 remains the answer for old browsers |
 | Maintenance | TFJS is abandoned | onnxruntime-web actively developed; WebNN EP future |
+
+\* the "v1" timing columns are the pre-optimization tiled fp32 baseline of the
+NEW engine (perf-plan Phase 0) — v1 TFJS itself was never benchmarked on this
+harness; treat the speedups as engine-optimization gains, not a measured
+TFJS-vs-ORT comparison.
 
 The one true regression is coverage: no WebGL fallback by design. WebGPU is
 Chrome/Edge stable, Safari 26+, Firefox (win stable/others in progress) — fine
