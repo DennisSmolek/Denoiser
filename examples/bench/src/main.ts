@@ -4,6 +4,10 @@
 // (table) and #json (machine-readable, window.__benchResults).
 import { Denoiser } from 'denoiser';
 
+// Dev serves the converted models from /models (vite middleware, see vite.config.ts);
+// production builds omit the override so the denoiser falls back to its shipped CDN default.
+const WEIGHTS_URL = import.meta.env.DEV ? '/models' : undefined;
+
 const params = new URLSearchParams(location.search);
 const only = params.get('only');
 const batchParam = params.get('batch') ? Number(params.get('batch')) : undefined;
@@ -114,7 +118,7 @@ async function benchScenario(w: number, h: number, label: string): Promise<Resul
 
   const tb = performance.now();
   const denoiser = await Denoiser.create({
-    precision, quality, weightsUrl: '/models',
+    precision, quality, weightsUrl: WEIGHTS_URL,
     batch: batchParam, graphCapture: captureParam, maxRunPixels: maxRunPixelsParam,
   });
   const buildMs = performance.now() - tb;
@@ -181,7 +185,7 @@ async function runAll() {
 ) => {
   const dn = await Denoiser.create({
     precision: opts.precision ?? 'fp32', batch: opts.batch,
-    quality: opts.quality ?? 'fast', weightsUrl: '/models',
+    quality: opts.quality ?? 'fast', weightsUrl: WEIGHTS_URL,
   });
   const out = (await dn.denoise(makeNoisy(w, h)))!;
   const stats = dn.stats;

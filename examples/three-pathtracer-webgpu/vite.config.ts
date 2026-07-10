@@ -9,6 +9,9 @@ const modelsDir = fileURLToPath(new URL('../../packages/denoiser/models', import
 const splitDir = fileURLToPath(new URL('./split-models', import.meta.url));
 
 export default defineConfig({
+  // Relative base so the built bundle works under any subpath (GitHub Pages
+  // serves examples under /denoiser/<name>/).
+  base: './',
   server: { fs: { allow: ['../..'] } },
   // three r185 / pathtracer source use top-level await -> need an esnext target
   esbuild: { target: 'esnext' },

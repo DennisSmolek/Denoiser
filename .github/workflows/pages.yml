@@ -1,0 +1,67 @@
+name: Deploy examples to GitHub Pages
+
+# Builds the deployed examples into one static site and publishes it to
+# https://pmndrs.github.io/denoiser/ on every push to main.
+#
+# NOTE: a repo admin must enable Pages once before the first run can succeed —
+# Settings -> Pages -> Source: "GitHub Actions". Until then this workflow builds
+# fine but the deploy step will fail.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only one Pages deployment at a time; a newer push supersedes an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build site
+    runs-on: ubuntu-latest
+    steps:
+      # Models are fetched from the jsDelivr CDN at runtime, so no git-LFS pull
+      # is needed here (the .tza blobs never enter the browser bundle).
+      - uses: actions/checkout@v4
+      # Corepack must be enabled BEFORE setup-node: its `cache: yarn` step shells
+      # out to yarn, and with a packageManager field pinning yarn 4 the stock
+      # yarn 1 shim refuses to run.
+      - name: Enable Corepack (yarn 4)
+        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+      # `--immutable` resolves the git-branch-pinned three-gpu-pathtracer fine
+      # (the lockfile records the resolved commit); it just refetches that ref.
+      - name: Install
+        run: yarn install --immutable
+      # The shipping package must be built first: the non-aliased examples import
+      # its built `denoiser` dist.
+      - name: Build denoiser
+        run: yarn workspace denoiser build
+      # Build the four deployed examples and assemble _site/ (landing page at the
+      # root, each example under /<name>/). Same script local verification uses.
+      - name: Build + assemble site
+        run: node tools/build-site.mjs
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,6 +1,9 @@
 # Ignore compiled output
 dist/
 
+# Assembled GitHub Pages site (built by tools/build-site.mjs)
+_site/
+
 # Ignore dependencies
 node_modules/
 

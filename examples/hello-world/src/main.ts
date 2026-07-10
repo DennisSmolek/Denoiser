@@ -15,12 +15,11 @@ async function run(): Promise<Denoiser> {
 
 // --- page plumbing ---
 
-import { DenoiserUnsupportedError } from 'denoiser';
 import pageSource from './main.ts?raw';
+import { ensureWebGPU, demoFooter } from '../../_shared/chrome';
 
 const statusEl = document.querySelector<HTMLElement>('#status')!;
 const snippetEl = document.querySelector<HTMLElement>('#snippet')!;
-const unsupportedEl = document.querySelector<HTMLElement>('#unsupported')!;
 const noisyImgEl = document.querySelector<HTMLImageElement>('#noisy-img')!;
 const noisyCanvas = document.querySelector<HTMLCanvasElement>('#noisy')!;
 
@@ -35,25 +34,21 @@ noisyImgEl.decode().then(() => {
 });
 
 async function main() {
-  statusEl.textContent = 'Fetching model + creating WebGPU device...';
-  try {
-    const t0 = performance.now();
-    const denoiser = await run();
-    const totalMs = performance.now() - t0;
-    const denoiseMs = denoiser.stats?.totalMs ?? totalMs;
-    const setupMs = Math.max(0, totalMs - denoiseMs);
-    statusEl.textContent =
-      `model + device ready in ${setupMs.toFixed(0)} ms -> denoised in ${denoiseMs.toFixed(0)} ms ` +
-      `(${totalMs.toFixed(0)} ms total)`;
-  } catch (err) {
-    if (err instanceof DenoiserUnsupportedError) {
-      unsupportedEl.hidden = false;
-      unsupportedEl.textContent = `WebGPU is unavailable in this browser: ${err.message}`;
-      statusEl.textContent = '';
-    } else {
-      throw err;
-    }
+  // Shared demo chrome: friendly full-page banner + bail if WebGPU is unavailable.
+  if (!(await ensureWebGPU())) {
+    statusEl.textContent = '';
+    return;
   }
+  statusEl.textContent = 'Fetching model + creating WebGPU device...';
+  const t0 = performance.now();
+  const denoiser = await run();
+  const totalMs = performance.now() - t0;
+  const denoiseMs = denoiser.stats?.totalMs ?? totalMs;
+  const setupMs = Math.max(0, totalMs - denoiseMs);
+  statusEl.textContent =
+    `model + device ready in ${setupMs.toFixed(0)} ms -> denoised in ${denoiseMs.toFixed(0)} ms ` +
+    `(${totalMs.toFixed(0)} ms total)`;
 }
 
+demoFooter('hello-world');
 main();

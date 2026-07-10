@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>denoiser — OIDN denoising in the browser, full WebGPU</title>
+    <meta
+      name="description"
+      content="Intel Open Image Denoise, running entirely in the browser on WebGPU. Live demos."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e14;
+        --panel: #141922;
+        --panel-hover: #1b2230;
+        --border: #232b3a;
+        --text: #e6edf3;
+        --muted: #9aa7b8;
+        --accent: #90cdf4;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 960px; margin: 0 auto; padding: 3.5rem 1.25rem 4rem; }
+      header { margin-bottom: 2.5rem; }
+      h1 { font-size: 2rem; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
+      h1 .name { color: var(--accent); }
+      .tagline { color: var(--muted); font-size: 1.05rem; margin: 0 0 1.25rem; max-width: 46rem; }
+      .toplinks a {
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 0.92rem;
+        margin-right: 1.25rem;
+        border-bottom: 1px solid transparent;
+      }
+      .toplinks a:hover { border-bottom-color: var(--accent); }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 1.1rem;
+      }
+      .card {
+        display: flex;
+        flex-direction: column;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        text-decoration: none;
+        color: inherit;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+      }
+      .card:hover {
+        background: var(--panel-hover);
+        border-color: #33405a;
+        transform: translateY(-2px);
+      }
+      /* Screenshot slot — no images yet; a labelled placeholder holds the space. */
+      .shot {
+        aspect-ratio: 16 / 9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          repeating-linear-gradient(
+            45deg,
+            #10151e,
+            #10151e 10px,
+            #131a25 10px,
+            #131a25 20px
+          );
+        color: #3f4a5c;
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .card-body { padding: 1rem 1.1rem 1.2rem; }
+      .card-title {
+        font-size: 1.08rem;
+        font-weight: 600;
+        margin: 0 0 0.3rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .card-title .arrow { color: var(--muted); transition: transform 0.15s ease; }
+      .card:hover .card-title .arrow { transform: translateX(3px); color: var(--accent); }
+      .card-desc { color: var(--muted); font-size: 0.9rem; margin: 0; }
+      footer {
+        margin-top: 3.5rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="name">denoiser</span> — OIDN denoising in the browser, full WebGPU</h1>
+        <p class="tagline">
+          Intel Open Image Denoise (OIDN) U-Nets, running entirely on WebGPU via
+          onnxruntime-web. No native, no server round-trip — the noisy frame goes
+          in, the clean frame comes out, on the GPU. These demos need a WebGPU
+          browser (Chrome/Edge 113+, Safari 26+).
+        </p>
+        <nav class="toplinks">
+          <a href="https://github.com/pmndrs/denoiser">GitHub repo ↗</a>
+          <!-- Docs go live with the pmndrs docs system (phase B4); placeholder for now. -->
+          <a href="https://github.com/pmndrs/denoiser#readme">Docs (coming soon) ↗</a>
+        </nav>
+      </header>
+
+      <main class="grid">
+        <a class="card" href="./hello-world/">
+          <div class="shot">screenshot soon</div>
+          <div class="card-body">
+            <p class="card-title">Hello world <span class="arrow">→</span></p>
+            <p class="card-desc">
+              The 10-line story: a noisy render → <code>Denoiser.create()</code> →
+              <code>denoise()</code> → canvas. No three.js, no build tricks.
+            </p>
+          </div>
+        </a>
+
+        <a class="card" href="./ldraw-eiffel/">
+          <div class="shot">screenshot soon</div>
+          <div class="card-body">
+            <p class="card-title">LDraw Eiffel Tower <span class="arrow">→</span></p>
+            <p class="card-desc">
+              A LEGO Eiffel Tower on a table: fast raster preview while you orbit,
+              path-trace + denoise the moment the camera comes to rest.
+            </p>
+          </div>
+        </a>
+
+        <a class="card" href="./three-pathtracer-webgpu/">
+          <div class="shot">screenshot soon</div>
+          <div class="card-body">
+            <p class="card-title">three.js path tracer <span class="arrow">→</span></p>
+            <p class="card-desc">
+              three r185 <code>WebGPUPathTracer</code> and the WebGPU/ONNX denoiser
+              sharing one <code>GPUDevice</code> — progressive path trace, denoised live.
+            </p>
+          </div>
+        </a>
+
+        <a class="card" href="./bench/">
+          <div class="shot">screenshot soon</div>
+          <div class="card-body">
+            <p class="card-title">Benchmark <span class="arrow">→</span></p>
+            <p class="card-desc">
+              The perf harness: cold + warm timings, per-stage stats, and fp16-vs-fp32
+              PSNR across image sizes. Numbers you can reproduce in your own browser.
+            </p>
+          </div>
+        </a>
+      </main>
+
+      <footer>
+        <a href="https://github.com/pmndrs/denoiser">pmndrs/denoiser</a> ·
+        MIT · a <a href="https://github.com/pmndrs">poimandres</a> project.
+        Demos deploy from <code>main</code> via GitHub Pages.
+      </footer>
+    </div>
+  </body>
+</html>

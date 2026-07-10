@@ -22,17 +22,6 @@
       figcaption { color: #a0aec0; font-size: 0.85rem; margin-top: 0.4rem; }
       canvas { display: block; border: 1px solid #4a5568; image-rendering: pixelated; width: 400px; max-width: 100%; height: auto; }
       #status { color: #a0aec0; font-size: 0.9rem; min-height: 1.2em; }
-      #unsupported {
-        display: none;
-        background: #742a2a;
-        border: 1px solid #c53030;
-        color: #fed7d7;
-        padding: 0.75rem 1rem;
-        border-radius: 6px;
-        margin: 1rem 0;
-      }
-      #unsupported[hidden] { display: none; }
-      #unsupported:not([hidden]) { display: block; }
       pre {
         background: #2d3748;
         padding: 1rem;
@@ -41,7 +30,6 @@
         font-size: 13px;
         line-height: 1.5;
       }
-      footer { margin-top: 3rem; color: #718096; font-size: 0.85rem; }
     </style>
   </head>
   <body>
@@ -50,8 +38,6 @@
       A noisy path-traced render, denoised entirely in the browser over WebGPU.
       No three.js, no build tricks — the code below is the whole story.
     </p>
-
-    <div id="unsupported" hidden></div>
 
     <div class="row">
       <figure>
@@ -69,13 +55,11 @@
     <h2>The whole thing</h2>
     <pre><code id="snippet"></code></pre>
 
-    <!-- Hidden source image: this is the actual element passed to denoiser.denoise(). -->
-    <img id="noisy-img" src="/noisy.png" alt="" style="display: none" />
+    <!-- Hidden source image: this is the actual element passed to denoiser.denoise().
+         Relative src (not "/noisy.png") so it resolves under the deployed subpath. -->
+    <img id="noisy-img" src="./noisy.png" alt="" style="display: none" />
 
-    <footer>
-      <a href="https://github.com/pmndrs/denoiser">denoiser</a> ·
-      models load from the default CDN, no <code>weightsUrl</code> override.
-    </footer>
+    <!-- Footer is injected by the shared demo chrome (demoFooter). -->
 
     <script type="module" src="/src/main.ts"></script>
   </body>

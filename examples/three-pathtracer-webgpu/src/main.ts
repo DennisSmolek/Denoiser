@@ -92,7 +92,9 @@ async function main() {
   // ('webgpu')+configure that stalls in headless Chrome). __captureAux() reads
   // the denoise output texture directly and doesn't need the overlay.
   const headless = appParams.has('headless');
-  const denoiser = await Denoiser.create({ weightsUrl: '/models', splitAux });
+  // Dev serves converted models (+ split-graph artifacts) from /models (vite middleware);
+  // prod omits the override so the denoiser falls back to its shipped CDN default (models-v2).
+  const denoiser = await Denoiser.create({ weightsUrl: import.meta.env.DEV ? '/models' : undefined, splitAux });
   const device = denoiser.device;
   log(`denoiser ready (splitAux: ${splitAux}); sharing GPUDevice with three.js: ${device ? 'yes' : 'no'}`);
   device.lost.then((info) => log(`DEVICE LOST: ${info.reason} — ${info.message}`));

@@ -7,6 +7,9 @@ import path from 'node:path';
 const modelsDir = fileURLToPath(new URL('../../packages/denoiser/models', import.meta.url));
 
 export default defineConfig({
+  // Relative base so the built bundle works under any subpath (GitHub Pages
+  // serves examples under /denoiser/<name>/).
+  base: './',
   server: { fs: { allow: ['../..'] } },
   optimizeDeps: { exclude: ['onnxruntime-web'] },
   plugins: [

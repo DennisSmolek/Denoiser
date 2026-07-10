@@ -31,7 +31,8 @@ async function buildScene(): Promise<{ scene: THREE.Scene; camera: THREE.Perspec
   // lights (studio lamps, sun disks) stay salt-and-pepper noisy in this
   // WebGPU tracer branch even at high sample counts — concentrated-source
   // sampling isn't there yet — and that speckle survives the denoiser.
-  const env = await new HDRLoader().loadAsync('/assets/kloppenheim_06_puresky_1k.hdr');
+  // BASE_URL keeps assets resolving under the deployed subpath (/denoiser/ldraw-eiffel/); it is "/" in dev.
+  const env = await new HDRLoader().loadAsync(`${import.meta.env.BASE_URL}assets/kloppenheim_06_puresky_1k.hdr`);
   env.mapping = THREE.EquirectangularReflectionMapping;
   scene.environment = env;
   scene.background = env;
@@ -82,7 +83,7 @@ async function loadEiffel(scene: THREE.Scene) {
   loader.setConditionalLineMaterial(LDrawConditionalLineMaterial);
   // Packed MPD (tools/pack-ldraw.mjs): every part + LDConfig colors inlined,
   // so no runtime trips to a parts-library CDN.
-  const raw = await loader.loadAsync('/assets/eiffel-tower_Packed.mpd');
+  const raw = await loader.loadAsync(`${import.meta.env.BASE_URL}assets/eiffel-tower_Packed.mpd`);
   raw.rotation.x = Math.PI; // LDraw is -Y up
   raw.updateMatrixWorld(true);
 
@@ -150,7 +151,8 @@ async function main() {
   patchWebGPUForMaxLimits();
 
   // 1) Denoiser first, so ORT owns the GPUDevice we then share with three.js.
-  const denoiser = await Denoiser.create({ weightsUrl: '/models' });
+  // Dev serves converted models from /models (vite middleware); prod falls back to the CDN default.
+  const denoiser = await Denoiser.create({ weightsUrl: import.meta.env.DEV ? '/models' : undefined });
   const device = denoiser.device;
   log('denoiser ready; sharing its GPUDevice with three.js');
   device.lost.then((info) => log(`DEVICE LOST: ${info.reason} — ${info.message}`));
