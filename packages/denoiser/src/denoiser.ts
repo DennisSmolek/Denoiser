@@ -98,13 +98,15 @@ export class Denoiser {
    * next call / size change / teardown). Returns undefined when aborted.
    */
   async denoiseTextures(options: DenoiseTexturesOptions): Promise<GPUTexture | undefined> {
+    const albedo = this.resolveAux(options, 'albedo');
+    const normal = this.resolveAux(options, 'normal');
     await this.ensureEngine({
-      hdr: !!options.hdr, albedo: !!options.albedo, normal: !!options.normal,
+      hdr: !!options.hdr, albedo: !!albedo, normal: !!normal,
     });
     this.aborted = false;
     const transfer = options.transfer ?? 'linear';
     const out = await this.engine.denoiseTextures(
-      { color: options.color, albedo: options.albedo, normal: options.normal },
+      { color: options.color, albedo, normal },
       {
         hdr: options.hdr,
         inputScale: options.inputScale,
@@ -252,6 +254,21 @@ export class Denoiser {
   }
 
   private splitWarned = false;
+
+  /** Aux textures are optional, but one PASSED yet resolving to undefined (e.g. a
+   *  failed render-target unwrap) would silently degrade to color-only — warn
+   *  once per input rather than dropping it quietly. */
+  private resolveAux(options: DenoiseTexturesOptions, name: 'albedo' | 'normal'): GPUTexture | undefined {
+    const tex = options[name];
+    if (tex) return tex;
+    if (name in options && !this.warnedAux.has(name)) {
+      this.warnedAux.add(name);
+      console.warn(`Denoiser: ${name} texture could not be unwrapped — falling back to color-only model`);
+    }
+    return undefined;
+  }
+
+  private warnedAux = new Set<string>();
 }
 
 type ImgInputArg = Parameters<typeof toRGBA>[0];

@@ -18,6 +18,7 @@
 // example, but restored immediately after).
 import * as ort from 'onnxruntime-web/webgpu';
 import { GpuImageOps } from './wgsl';
+import { DenoiserInputError, DenoiserUnsupportedError } from '../types';
 
 export interface EngineOptions {
   channels: number; // 3 | 6 | 9 — must match the model
@@ -231,6 +232,11 @@ export class DenoiseEngine {
     // Create the default (tiled-fallback) geometry now — this is also what
     // makes ORT create the GPUDevice, under the scoped max-limits patch.
     const deviceMissing = !(ort.env.webgpu as unknown as { device?: GPUDevice }).device;
+    // WebGPU is required (no WebGL fallback in v2) — probe before ORT so a missing
+    // adapter fails loudly here instead of as a cryptic WASM/session error deeper in.
+    if (deviceMissing && (typeof navigator === 'undefined' || !('gpu' in navigator) || !(await navigator.gpu.requestAdapter()))) {
+      throw new DenoiserUnsupportedError('denoiser 2.x requires WebGPU (no adapter available). See browser support: Chrome/Edge stable, Safari 26+. For WebGL environments use denoiser 0.x (v1).');
+    }
     const unpatch = deviceMissing ? patchForMaxLimits() : undefined;
     try {
       await e.ensureGeo({ tileW: e.tile, tileH: e.tile, batch: e.batch, overlap: e.overlap });
@@ -239,12 +245,12 @@ export class DenoiseEngine {
     }
 
     e.device = (ort.env.webgpu as unknown as { device: GPUDevice }).device;
-    if (!e.device) throw new Error('Denoiser: ORT did not expose a WebGPU device');
+    if (!e.device) throw new DenoiserUnsupportedError('Denoiser: ORT did not expose a WebGPU device');
     if (e.precision === 'fp16' && !e.device.features.has('shader-f16')) {
       // ORT requests shader-f16 on its device when the adapter has it; without
       // it our WGSL can't read/write the fp16 model IO buffers.
       e.destroy();
-      throw new Error('Denoiser: fp16 needs the shader-f16 WebGPU feature (unavailable on this device)');
+      throw new DenoiserUnsupportedError('Denoiser: fp16 needs the shader-f16 WebGPU feature (unavailable on this device)');
     }
     e.ops = new GpuImageOps(e.device, e.batch, e.precision === 'fp16');
 
@@ -422,8 +428,8 @@ export class DenoiseEngine {
   /** Denoise a full-resolution image (whole-frame or tiled+blended). Returns RGBA8 pixels (alpha = 255). */
   async denoise(color: Uint8ClampedArray, w: number, h: number, opts: DenoiseOptions = {}): Promise<Uint8ClampedArray> {
     if (color.length !== w * h * 4) throw new Error(`Denoiser: expected ${w * h * 4} color bytes, got ${color.length}`);
-    if (this.channels >= 6 && !opts.albedo) throw new Error('Denoiser: model requires an albedo input');
-    if (this.channels >= 9 && !opts.normal) throw new Error('Denoiser: model requires a normal input');
+    if (this.channels >= 6 && !opts.albedo) throw new DenoiserInputError('Denoiser: model requires an albedo input');
+    if (this.channels >= 9 && !opts.normal) throw new DenoiserInputError('Denoiser: model requires a normal input');
     return this.process({ cpu: { color, albedo: opts.albedo, normal: opts.normal } }, w, h, opts) as Promise<Uint8ClampedArray>;
   }
 
@@ -434,8 +440,8 @@ export class DenoiseEngine {
    * (owned by the engine, valid until the next call / size change / dispose).
    */
   async denoiseTextures(inputs: TextureInputs, opts: TextureDenoiseOptions = {}): Promise<Uint8ClampedArray | GPUTexture> {
-    if (this.channels >= 6 && !inputs.albedo) throw new Error('Denoiser: model requires an albedo input');
-    if (this.channels >= 9 && !inputs.normal) throw new Error('Denoiser: model requires a normal input');
+    if (this.channels >= 6 && !inputs.albedo) throw new DenoiserInputError('Denoiser: model requires an albedo input');
+    if (this.channels >= 9 && !inputs.normal) throw new DenoiserInputError('Denoiser: model requires a normal input');
     return this.process({ tex: inputs }, inputs.color.width, inputs.color.height, opts);
   }
 
