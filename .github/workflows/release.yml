@@ -1,0 +1,51 @@
+name: Release (npm publish)
+
+# Manual, deliberate trigger: publishing IS the launch (it also retires the
+# TFJS 0.x line as `latest`). Run from the Actions tab once NPM_TOKEN is set.
+#
+# Setup (one-time, repo admin):
+#   npmjs.com -> Access Tokens -> Generate granular token with read/write on
+#   the `denoiser` package -> add as repo secret NPM_TOKEN.
+#
+# Publishes with npm provenance (links the tarball to this workflow run),
+# which needs `id-token: write` and node >= 20 / npm >= 9.5.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'npm dist-tag'
+        required: true
+        default: 'latest'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Corepack before setup-node: `cache: yarn` shells out to yarn, and the
+      # packageManager field pins yarn 4 (see ci.yml).
+      - name: Enable Corepack (yarn 4)
+        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install
+        run: yarn install --immutable
+      - name: Build
+        run: yarn workspace denoiser build
+      - name: Typecheck
+        run: yarn workspace denoiser exec tsc --noEmit
+      - name: Show what will publish
+        run: cd packages/denoiser && npm pack --dry-run
+      # npm (not yarn) so setup-node's registry-url + NODE_AUTH_TOKEN apply.
+      - name: Publish
+        run: cd packages/denoiser && npm publish --provenance --access public --tag "${{ inputs.tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
