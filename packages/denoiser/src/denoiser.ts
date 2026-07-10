@@ -227,7 +227,14 @@ export class Denoiser {
     const stem = m.url ? `${m.url}/${name}${suffix}` : `/${m.path ?? 'models'}/${name}${suffix}`;
     const fetchBytes = async (url: string) => {
       const r = await fetch(url);
-      if (!r.ok) throw new Error(`${url} (${r.status})`);
+      // A dev server's SPA fallback (e.g. Vite's default appType) can answer a
+      // missing artifact with a 200 + index.html rather than a 404 — treat any
+      // HTML response as "not found" too, or the bogus bytes below throw a
+      // confusing low-level error instead of the intended graceful fallback.
+      const contentType = r.headers.get('content-type') ?? '';
+      if (!r.ok || contentType.includes('text/html')) {
+        throw new Error(`${url} (${r.status}${contentType ? `, ${contentType}` : ''})`);
+      }
       return r.arrayBuffer();
     };
     let tail: ArrayBuffer, encBuf: ArrayBuffer;
