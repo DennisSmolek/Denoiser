@@ -42,8 +42,8 @@ export interface DenoiserCreateOptions {
 }
 
 export interface DenoiseImageOptions {
-  albedo?: ImgInput; // [0,1]
-  normal?: ImgInput; // RGBA8 bytes encoding [-1,1] as [0,1]
+  albedo?: ImgInput; // [0,1], LINEAR bytes — never sRGB-decoded (only `color` honors `srgb`)
+  normal?: ImgInput; // RGBA8 bytes encoding [-1,1] as [0,1] (n*0.5+0.5); env/miss pixels = 0
   /** Input pixels are sRGB-encoded photographs/screens (decode in, re-encode out). Default true. */
   srgb?: boolean;
   /** Flip the result vertically. */

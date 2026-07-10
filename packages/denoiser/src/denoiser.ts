@@ -34,6 +34,9 @@ export class Denoiser {
 
   /** Per-stage wall-clock timings from the most recent run. */
   get stats(): DenoiseStats | undefined { return this.engine?.lastStats; }
+  /** Model file the last denoise ran on (e.g. `rt_hdr_calb_cnrm`) — set after the
+   *  first call; changes when the passed inputs select a different variant. */
+  get modelName(): string | undefined { return this.activeModelName; }
   get quality(): Quality { return this.opts.quality; }
   set quality(q: Quality) { this.opts.quality = q; }
 
