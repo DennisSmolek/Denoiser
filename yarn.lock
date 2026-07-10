@@ -5,6 +5,13 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
+"@babylonjs/core@npm:^9.16.1":
+  version: 9.16.1
+  resolution: "@babylonjs/core@npm:9.16.1"
+  checksum: 10c0/1d708f889ef951eb491009884265cf3908d73b6dc30ab5a106b1b6d0902c8a812aac92ed568be597333cb8f0b6dfcb4c9cc81a2d2d80b2f50e63ec1d2aee8dc6
+  languageName: node
+  linkType: hard
+
 "@emnapi/core@npm:1.11.1":
   version: 1.11.1
   resolution: "@emnapi/core@npm:1.11.1"
@@ -1002,6 +1009,19 @@ __metadata:
   resolution: "aux-split-verify@workspace:examples/aux-split-verify"
   dependencies:
     onnxruntime-web: "npm:^1.27.0"
+    vite: "npm:^8.1.4"
+  languageName: unknown
+  linkType: soft
+
+"babylon@workspace:examples/babylon":
+  version: 0.0.0-use.local
+  resolution: "babylon@workspace:examples/babylon"
+  dependencies:
+    "@babylonjs/core": "npm:^9.16.1"
+    "@webgpu/types": "npm:^0.1.71"
+    denoiser: "workspace:*"
+    onnxruntime-web: "npm:^1.27.0"
+    typescript: "npm:^5.9.3"
     vite: "npm:^8.1.4"
   languageName: unknown
   linkType: soft
@@ -2600,6 +2620,18 @@ __metadata:
   checksum: 10c0/900a93d3cdae3acd7d16f642c29a642aea32c2026446151f0778c62ac089d4b8e6c986811076e1ae180a694cedf077d453a11b58ff0a865629a4f82ab558e102
   languageName: node
   linkType: hard
+
+"realtime-compare@workspace:examples/realtime-compare":
+  version: 0.0.0-use.local
+  resolution: "realtime-compare@workspace:examples/realtime-compare"
+  dependencies:
+    denoiser: "workspace:*"
+    onnxruntime-web: "npm:^1.27.0"
+    three: "npm:^0.185.0"
+    typescript: "npm:^5.9.3"
+    vite: "npm:^8.1.4"
+  languageName: unknown
+  linkType: soft
 
 "resolve@npm:^1.22.1":
   version: 1.22.8

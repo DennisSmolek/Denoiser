@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>denoiser — babylon.js</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e14;
+        --panel: #141922;
+        --panel-hover: #1b2230;
+        --border: #232b3a;
+        --text: #e6edf3;
+        --muted: #9aa7b8;
+        --accent: #90cdf4;
+        --good: #7ee787;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1120px; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+      h1 { font-size: 1.9rem; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
+      h1 .name { color: var(--accent); }
+      .tagline { color: var(--muted); font-size: 1.02rem; margin: 0 0 1.25rem; max-width: 46rem; }
+
+      .note {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--accent);
+        border-radius: 8px;
+        padding: 0.85rem 1.1rem;
+        margin: 0 0 1.75rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+        max-width: 52rem;
+      }
+      .note strong { color: var(--text); }
+      .note a { color: var(--accent); }
+
+      h2.section-label {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin: 0 0 0.6rem;
+        font-weight: 600;
+      }
+
+      /* two-panel viewer */
+      .views {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+      }
+      @media (max-width: 720px) { .views { grid-template-columns: 1fr; } }
+      .view { }
+      .view .cap {
+        display: flex; justify-content: space-between; align-items: baseline;
+        margin-bottom: 0.4rem;
+      }
+      .view .cap .t { font-weight: 600; font-size: 0.92rem; }
+      .view .cap .s { color: var(--muted); font-size: 0.75rem; }
+      .view canvas {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        display: block;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #05070a;
+        image-rendering: auto;
+      }
+
+      /* controls */
+      .controls {
+        display: flex; flex-wrap: wrap; gap: 1.75rem; align-items: flex-end;
+        margin-bottom: 1.25rem;
+      }
+      .control-group { display: flex; flex-direction: column; gap: 0.45rem; }
+
+      button.btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--accent);
+        color: #0b0e14;
+        padding: 0.45rem 1.1rem;
+        border-radius: 8px;
+        font: inherit; font-size: 0.9rem; font-weight: 600;
+        cursor: pointer;
+      }
+      button.btn:hover { filter: brightness(1.08); }
+      button.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+      .toggle-row label { font-size: 0.85rem; display: flex; align-items: center; gap: 0.45rem; cursor: pointer; }
+      input[type="range"] { width: 160px; accent-color: var(--accent); }
+      .hint { color: var(--muted); font-size: 0.75rem; margin: 0; }
+
+      /* ms breakdown */
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+      }
+      .metric {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.7rem 0.9rem;
+      }
+      .metric .k { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+      .metric .v { font: 1.35rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
+      .metric .v .u { font-size: 0.8rem; color: var(--muted); }
+      .metric.copy { border-color: #3b4a63; }
+      .metric.copy .v { color: var(--accent); }
+
+      #status { color: var(--muted); font-size: 0.85rem; min-height: 1.3em; margin: 0.25rem 0 0; }
+      #status .model { color: var(--good); }
+      #engine-tag { color: var(--muted); font-size: 0.78rem; font-family: ui-monospace, Menlo, monospace; }
+      .noise-line { color: var(--muted); font-size: 0.8rem; margin: 0.1rem 0 0; font-family: ui-monospace, Menlo, monospace; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="name">denoiser</span> · babylon.js</h1>
+        <p class="tagline">
+          Babylon renders a noisy PBR showcase; the denoiser cleans it — running on a
+          <em>different</em> GPU device. Watch the two CPU copies that bridge them.
+        </p>
+      </header>
+
+      <p class="note">
+        <strong>Two devices, one copy each way.</strong> Babylon's WebGPU engine can't
+        adopt an external <code>GPUDevice</code>, and onnxruntime-web can't adopt Babylon's,
+        so this is the honest <strong>CPU-copy integration</strong>: Babylon renders →
+        <code>RenderTargetTexture.readPixels()</code> (GPU→CPU) →
+        <code>denoiser.denoise()</code> (on the denoiser's own device) →
+        <code>RawTexture.update()</code> (CPU→GPU) back into Babylon. The copies cost real
+        time — which is why they're timed separately below — but the round-trip is still
+        useful for stills and preview passes. See the
+        <a href="https://github.com/pmndrs/denoiser/blob/main/docs/site/guides/custom-engines.mdx" target="_blank" rel="noopener">custom-engines guide</a>.
+        <span id="engine-tag"></span>
+      </p>
+
+      <div class="views">
+        <div class="view">
+          <div class="cap"><span class="t">Noisy — Babylon render</span><span class="s">readPixels() input</span></div>
+          <canvas id="canvas-noisy"></canvas>
+        </div>
+        <div class="view">
+          <div class="cap"><span class="t">Denoised — uploaded back to Babylon</span><span class="s">RawTexture.update()</span></div>
+          <canvas id="canvas-denoised"></canvas>
+        </div>
+      </div>
+
+      <!-- Babylon's own WebGPU surface. Kept offscreen: the readback camera renders
+           into an RTT, and both visible panels are painted from the CPU side. -->
+      <canvas id="engine-canvas" width="512" height="512" style="position:absolute;left:-9999px;top:0;width:512px;height:512px" aria-hidden="true"></canvas>
+
+      <section class="controls">
+        <div class="control-group">
+          <h2 class="section-label">Run</h2>
+          <button class="btn" id="denoise-btn" disabled>Denoise frame</button>
+        </div>
+        <div class="control-group">
+          <h2 class="section-label">Auto</h2>
+          <div class="toggle-row">
+            <label><input type="checkbox" id="auto-toggle" disabled /><span>denoise every frame</span></label>
+          </div>
+          <p class="hint">live round-trip loop</p>
+        </div>
+        <div class="control-group">
+          <h2 class="section-label">Noise (SSAO strength)</h2>
+          <input type="range" id="noise-slider" min="0" max="100" value="70" />
+          <p class="hint"><span id="noise-label">heavy</span></p>
+        </div>
+      </section>
+
+      <div class="metrics">
+        <div class="metric copy"><div class="k">Readback (GPU→CPU)</div><div class="v"><span id="m-readback">–</span> <span class="u">ms</span></div></div>
+        <div class="metric"><div class="k">Denoise</div><div class="v"><span id="m-denoise">–</span> <span class="u">ms</span></div></div>
+        <div class="metric copy"><div class="k">Upload (CPU→GPU)</div><div class="v"><span id="m-upload">–</span> <span class="u">ms</span></div></div>
+        <div class="metric"><div class="k">Round-trip total</div><div class="v"><span id="m-total">–</span> <span class="u">ms</span></div></div>
+      </div>
+
+      <p id="status"></p>
+      <p class="noise-line">noise metric&nbsp; <span id="m-noise">–</span></p>
+
+      <!-- Footer injected by the shared demo chrome (demoFooter). -->
+
+      <script type="module" src="/src/main.ts"></script>
+    </div>
+  </body>
+</html>

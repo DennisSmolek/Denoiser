@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>denoiser — realtime compare</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e14;
+        --panel: #141922;
+        --panel-hover: #1b2230;
+        --border: #232b3a;
+        --text: #e6edf3;
+        --muted: #9aa7b8;
+        --accent: #90cdf4;
+        --good: #7ee787;
+        --warn: #f0b866;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+      h1 { font-size: 1.9rem; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
+      h1 .name { color: var(--accent); }
+      .tagline { color: var(--muted); font-size: 1.02rem; margin: 0 0 1.5rem; max-width: 56rem; }
+
+      .controls {
+        display: flex; flex-wrap: wrap; gap: 1.25rem 1.75rem;
+        align-items: center; margin-bottom: 1.25rem;
+      }
+      .controls label { font-size: 0.88rem; color: var(--text); display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+      .controls .field { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--muted); }
+      .controls input[type="range"] { accent-color: var(--accent); }
+      button.btn {
+        appearance: none; border: 1px solid var(--border); background: var(--panel);
+        color: var(--text); padding: 0.4rem 0.85rem; border-radius: 8px;
+        font: inherit; font-size: 0.85rem; cursor: pointer;
+      }
+      button.btn:hover { background: var(--panel-hover); }
+      button.btn[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-hover); color: var(--accent); }
+
+      /* split-screen viewer */
+      #stage { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem; }
+      .side {
+        position: relative; border-radius: 10px; overflow: hidden;
+        border: 1px solid var(--border); background: #05070a; aspect-ratio: 1 / 1;
+      }
+      .side canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      .side .badge {
+        position: absolute; top: 8px; left: 8px; z-index: 5;
+        padding: 3px 8px; border-radius: 6px; font: 600 12px/1.3 system-ui, sans-serif;
+        background: rgba(11,14,20,0.78); letter-spacing: 0.01em;
+      }
+      .side.left .badge { color: var(--accent); }
+      .side.right .badge { color: var(--good); }
+      .side .hud {
+        position: absolute; bottom: 8px; left: 8px; right: 8px; z-index: 5;
+        padding: 5px 9px; border-radius: 6px;
+        background: rgba(11,14,20,0.78);
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--muted); white-space: pre-wrap;
+      }
+      .side .hud b { color: var(--text); font-weight: 600; }
+
+      #status { color: var(--muted); font-size: 0.85rem; min-height: 1.3em; margin: 0.25rem 0 1.25rem; }
+      #status .model { color: var(--good); }
+
+      .method {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 1.5rem;
+        background: var(--panel); border: 1px solid var(--border);
+        border-radius: 10px; padding: 1.1rem 1.25rem; margin-bottom: 1.25rem;
+      }
+      .method h3 { margin: 0 0 0.35rem; font-size: 0.95rem; }
+      .method .left h3 { color: var(--accent); }
+      .method .right h3 { color: var(--good); }
+      .method p { margin: 0 0 0.5rem; font-size: 0.87rem; color: var(--muted); }
+      .method code { color: var(--text); background: #0e131c; padding: 0.05rem 0.3rem; border-radius: 4px; font-size: 0.82em; }
+      .method .full { grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: 0.9rem; }
+      .method .full p { color: var(--text); }
+      .method .full .pos { color: var(--warn); }
+
+      @media (max-width: 760px) {
+        #stage, .method { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="name">denoiser</span> — realtime compare</h1>
+        <p class="tagline">
+          A deliberately noisy screen-space effect (stochastic SSR reflections on the
+          floor and metal) denoised two ways, live on one shared WebGPU device.
+          <b>Left</b> uses three.js r185's temporal <code>recurrentDenoise()</code>
+          screen-space denoiser (runs every frame). <b>Right</b> composites the same raw
+          noisy reflections into the beauty frame and denoises the <b>whole frame</b>
+          with our OIDN network every few frames. Toggle motion to see where each wins.
+        </p>
+      </header>
+
+      <div class="controls">
+        <label><input type="checkbox" id="motion" checked /> Orbit (motion)</label>
+        <div class="field">
+          <span>Our denoise cadence</span>
+          <input type="range" id="cadence" min="1" max="30" value="6" />
+          <span id="cadence-val">every 6 frames</span>
+        </div>
+        <label><input type="checkbox" id="aux" checked /> Feed albedo+normal to OIDN</label>
+        <button class="btn" id="ref-btn">Measure PSNR (hold camera still)</button>
+      </div>
+
+      <div id="stage">
+        <div class="side left">
+          <div class="badge">LEFT · three.js recurrentDenoise() — temporal, every frame</div>
+          <canvas id="canvas-left" width="512" height="512"></canvas>
+          <div class="hud" id="hud-left">initializing…</div>
+        </div>
+        <div class="side right">
+          <div class="badge">RIGHT · our OIDN full-frame denoise — cadence-based</div>
+          <canvas id="canvas-right" width="512" height="512"></canvas>
+          <div class="hud" id="hud-right">initializing…</div>
+        </div>
+      </div>
+
+      <p id="status"></p>
+
+      <section class="method">
+        <div class="left">
+          <h3>Left — three.js <code>recurrentDenoise()</code></h3>
+          <p>
+            The r185 addon (<code>SSRNode → temporalReproject → recurrentDenoise</code>,
+            <code>mode:'specular'</code>) is a <b>screen-space-effect</b> denoiser: it filters
+            the noisy SSR buffer using the G-buffer (depth / normal / roughness / ray-length)
+            and blends across frames. It is cheap and runs <b>every frame</b>, so it tracks
+            motion — but it needs several frames of history, so it can smear or lag on a cut.
+          </p>
+        </div>
+        <div class="right">
+          <h3>Right — our OIDN full-frame denoise</h3>
+          <p>
+            We composite the <b>same raw</b> noisy SSR into the beauty frame, then run the
+            full OIDN U-Net (<code>denoiseTextures</code>, <code>hdr</code>, optional
+            albedo+normal aux) on the <b>entire image</b>. It is a heavier, per-invocation
+            pass, so we run it on a <b>cadence</b> (every N frames). It has no temporal history:
+            each run is a clean still, but during motion it visibly lags behind the live frame.
+          </p>
+        </div>
+        <div class="full">
+          <p>
+            <b>Why this is the fair comparison.</b> <code>recurrentDenoise()</code> is designed
+            to denoise screen-space effects (AO/SSGI/SSR), not a path-traced beauty frame — so
+            we pit it against a noisy SSR effect, the job it was built for, and give our denoiser
+            the <i>same</i> raw noise (composited into the frame) to clean.
+          </p>
+          <p class="pos">
+            Different points on the quality/latency curve, complementary rather than competing:
+            temporal realtime denoising for continuous motion, OIDN-class quality for stills and
+            converged/refined frames. (A temporal OIDN mode waits on upstream OIDN 3.x weights.)
+          </p>
+          <p>
+            <b>About the PSNR.</b> "Measure PSNR" holds the camera still and scores each side
+            against a converged reference (the raw SSR averaged over many frames). That is the
+            <i>temporal</i> denoiser's best case — it accumulates toward exactly that reference,
+            so it wins this number on a static shot. Our single-shot OIDN pass doesn't wait for
+            convergence: its edge is a clean frame on demand and during motion, where the temporal
+            side smears. Toggle motion to see that side of the trade.
+          </p>
+        </div>
+      </section>
+
+      <!-- Footer injected by the shared demo chrome (demoFooter). -->
+      <script type="module" src="/src/main.ts"></script>
+    </div>
+  </body>
+</html>

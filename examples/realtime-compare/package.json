@@ -1,0 +1,21 @@
+{
+  "name": "realtime-compare",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Honest positioning demo: a noisy screen-space SSR effect denoised two ways — three.js r185 recurrentDenoise() (temporal, every frame) vs our OIDN-class full-frame denoiser (cadence-based), side by side on one shared GPUDevice.",
+  "scripts": {
+    "dev": "vite --port 5182",
+    "build": "vite build",
+    "preview": "vite preview --port 5182"
+  },
+  "dependencies": {
+    "denoiser": "workspace:*",
+    "three": "^0.185.0"
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.27.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4"
+  }
+}

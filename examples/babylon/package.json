@@ -1,0 +1,22 @@
+{
+  "name": "babylon",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Babylon.js integration (engine-neutrality, direction 2): Babylon renders a PBR showcase on its own WebGPU device, then the honest CPU-copy path — RenderTargetTexture.readPixels() -> denoiser.denoise() -> RawTexture.update — bridges to the denoiser's separate device. The reference for the 'custom engines' guide's two-device story.",
+  "scripts": {
+    "dev": "vite --port 5183",
+    "build": "vite build",
+    "preview": "vite preview --port 5183"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^9.16.1",
+    "denoiser": "workspace:*"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.71",
+    "onnxruntime-web": "^1.27.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4"
+  }
+}
