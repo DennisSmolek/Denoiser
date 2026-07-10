@@ -1,0 +1,60 @@
+---
+title: Introduction
+description: AI denoising for path/ray-traced renders, running entirely in the browser on WebGPU.
+nav: 0
+---
+
+Denoiser runs Intel [Open Image Denoise (OIDN)](https://github.com/RenderKit/oidn)'s
+pretrained U-Nets fully on the GPU: ONNX models on onnxruntime-web's WebGPU execution
+provider, with every pre/post-processing step — normalization, tiling, overlap
+blending, color transforms — written as WGSL compute on the same `GPUDevice`. There's
+no server round-trip and no native binary: the noisy frame goes in, the clean frame
+comes out, on the GPU that rendered it.
+
+[**Live gallery demo →**](https://pmndrs.github.io/denoiser/gallery/) — before/after
+slider, sample-count ladder, albedo+normal toggle, real in-browser inference on real
+path-traced scenes.
+
+## When to use it
+
+- **Path-traced / ray-traced renders.** OIDN's weights are trained on Monte Carlo
+  render noise — this is its home turf, not a general-purpose image filter.
+- **Progressive preview.** Denoise every few samples while a path tracer accumulates
+  and watch noise disappear well before convergence. See
+  [Performance](../concepts/performance.mdx) for pacing patterns.
+- **Final frames.** Whole-frame inference handles images up to roughly 1080p in a
+  single model run, with an automatic tile ladder above that — see
+  [How it works](../concepts/how-it-works.mdx).
+
+## When NOT to use it
+
+> [!WARNING]
+> Photos and sensor noise are the wrong training domain. OIDN's models never saw
+> camera-sensor grain — feeding one a real photo "does something," but the result
+> isn't designed to look right and shouldn't be judged as if it were.
+
+- **Photos / sensor noise** — off-label use, see above.
+- **Per-frame realtime denoising.** This library targets progressive refinement and
+  final frames, not a temporal denoiser that runs every frame on screen-space effects
+  (SSR, SSGI). three.js's `RecurrentDenoiseNode` (r185+) is built for that job, and
+  OIDN doesn't ship temporal weights yet (upstream OIDN 3.x). See the roadmap for
+  where a realtime-denoiser comparison demo fits in.
+- **Non-WebGPU browsers.** v2 is a WebGPU-only rewrite with no fallback. If you need
+  broader coverage, stay on `denoiser@0.0.11` (v1, TensorFlow.js-based — its WebGL2
+  fallback covers non-WebGPU browsers) — see
+  [Migrating from v1](../guides/migrating-from-v1.mdx) for what changed and why.
+
+## Browser support
+
+Needs WebGPU. The library requests the adapter's maximum device limits itself on
+creation — whole-frame U-Net intermediates need more buffer headroom than the
+default WebGPU device grants — so there's nothing extra to configure.
+
+| Browser | Status |
+|---|---|
+| Chrome / Edge | stable |
+| Safari | 26+ |
+| Firefox | stable on Windows; other platforms in progress |
+
+Where WebGPU or a required feature is missing, `Denoiser.create()` rejects with a
+`DenoiserUnsupportedError` rather than failing silently.

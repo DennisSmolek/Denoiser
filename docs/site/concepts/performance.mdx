@@ -1,0 +1,121 @@
+---
+title: Performance
+description: Measured numbers, what actually moves the needle, and an honest ceiling.
+nav: 12
+---
+
+All numbers below are warm medians measured on an M-series Mac in Chrome via
+`examples/bench`, quality `fast`, unless noted otherwise. Reproduce them yourself —
+`bench` is a real deployed demo, not a cherry-picked internal harness.
+
+## Measured: whole-frame inference (v2, fp16)
+
+| size | time |
+|---|---|
+| 512×512 | **13.7 ms** |
+| 1280×720 | **45.1 ms** |
+| 1920×1080 | **104.1 ms** |
+
+fp16 output measures **53.5–53.6 dB PSNR** vs fp32 at the same settings — visually
+identical. Images larger than 2560×1440 fall back to the tile ladder automatically
+(1024² tiles, batch 2, seam-free via overlap blending).
+
+## vs v1 (TensorFlow.js)
+
+| | v1 (TFJS) | v2 (this library) | speedup |
+|---|---|---|---|
+| 512² warm | 37.6 ms (9 tiles) | **13.7 ms** (whole-frame, fp16) | 2.7× |
+| 1080p warm | 188 ms (45 tiles) | **104 ms** (whole-frame, fp16) | 1.8× |
+
+v1 ran everything through TFJS's WebGL/WebGPU backends with tiling only (no
+whole-frame path); v2's rewrite onto ONNX + the WebGPU EP plus whole-frame inference
+accounts for the gap. Precision also improved: fp32 was the only usable option in
+v1, whereas v2's fp16 path is a further ~15% on top of the numbers above.
+
+## Zero-copy GPU pipeline
+
+The end-to-end win is bigger than the model timings alone once you count the CPU
+round-trip a naive integration pays. At 512² in the path tracer example:
+
+- **Old CPU path**: float readback → JS tonemap loop → 8-bit quantize → denoise:
+  **68.8 ms**.
+- **Zero-copy GPU path** (render target straight into `denoiseTextures`, real HDR,
+  no readback): **35.4 ms warm**.
+
+See [The GPUDevice](./the-gpudevice.mdx) for how the shared-device setup that makes
+this possible works.
+
+## What moves the needle
+
+Roughly in order of impact, from the measured optimization work:
+
+1. **Whole-frame vs tiled** — the single biggest win. Tiling at 256px/32px overlap
+   infers about 31% more pixels than the image actually has, on top of per-tile
+   `await` overhead; collapsing 1080p from 45 tiles to 1 run dominates every other
+   change. See [How it works](./how-it-works.mdx#whole-frame-vs-tiled-inference).
+2. **Image size** — the obvious one, but note it's now closer to linear in pixel
+   count than it was under tiling, since the overlap tax and per-tile sync overhead
+   are gone in whole-frame mode.
+3. **Precision (`fp16` vs `fp32`)** — a real but modest ~15% (not the ~2× you might
+   expect from halved IO — onnxruntime-web's WebGPU conv kernels don't scale that
+   cleanly with element size on this workload). Free once `shader-f16` is available.
+4. **Quality tier** — `fast` (`*_small`) vs `balanced` vs `high` (`*_large`) trades
+   speed for the network's capacity; `high` is meaningfully slower, benchmark for
+   your target sizes with `examples/bench`.
+5. **Aux inputs (albedo + normal)** — a bigger model (9 channels in vs 3) costs some
+   speed, but the quality gain at low sample counts is usually worth it; see
+   [Models & weights](../getting-started/models-and-weights.mdx#what-aux-buys).
+6. **Zero-copy IO** — doesn't change the model's own cost, but removes the CPU
+   readback/tonemap/quantize round trip a naive pathtracer integration would
+   otherwise pay every frame (see above).
+
+Batching multiple tiles per `session.run()` and ORT's graph-capture feature were
+both tried and are **not** wins here: batching was small and mostly mattered as
+groundwork for whole-frame inference, and graph capture measured zero throughput
+gain (the workload is GPU-bound, not dispatch-bound) while onnxruntime-web 1.27's
+captured sessions crash after roughly 150–250 cumulative replays — unusable for a
+live loop. `graphCapture` ships opt-in and off by default for that reason.
+
+## The honest ceiling
+
+Native OIDN on Metal does the same 512² image in **~24.5 ms**, using hardware matrix
+units (`simdgroup_matrix`) that WGSL has no path to today — that's a measured,
+not guessed, ~4× gap (a dedicated kernel-spike investigating a custom WGSL conv path
+came back NO-GO at ≤1.32×, nowhere near enough to justify the complexity). This
+library **beats native OIDN's CPU path** (334 ms) comfortably; it does not currently
+beat native GPU. That gap closes if/when WebGPU gets subgroup-matrix operations, or
+via a future WebNN/NPU backend — both tracked, neither shipped yet.
+
+## Pacing progressive denoise
+
+Don't call `denoiseTextures()` every rendered frame — a path tracer typically adds
+one sample per frame, and re-denoising an image that only gained one new sample of
+information is wasted GPU time. The pattern used in `examples/three-pathtracer-webgpu`'s
+live mode:
+
+```ts
+let denoisingBusy = false;
+let lastDenoisedSample = -1;
+
+function loop() {
+  pathTracer.renderSample();
+  const s = Math.floor(pathTracer.samples ?? 0);
+
+  if (!denoisingBusy && s !== lastDenoisedSample && s > 0) {
+    denoisingBusy = true;
+    runDenoise()
+      .then(() => { lastDenoisedSample = s; })
+      .finally(() => { denoisingBusy = false; });
+  }
+  requestAnimationFrame(loop);
+}
+```
+
+The busy flag alone naturally paces this to "roughly every N samples, not every
+frame" — a denoise call typically takes longer than one render sample, so later
+frames just skip re-triggering until the in-flight one resolves. On top of that,
+call `denoiser.abort()` whenever the view goes stale (camera moved, scene changed):
+it doesn't cancel already-submitted GPU work, but it makes the in-flight call
+resolve `undefined` instead of returning a result for an outdated view, so you never
+present a denoise that no longer matches what's on screen. `denoiser.stats` carries
+per-stage timings from the last run if you want a live HUD.

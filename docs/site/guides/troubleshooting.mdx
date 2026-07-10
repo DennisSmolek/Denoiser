@@ -1,0 +1,146 @@
+---
+title: Troubleshooting / FAQ
+description: Fixes for the failure modes people actually hit — WebGPU availability, black/upside-down output, speckled aux, device-lost, CORS, and fp16 fallback.
+nav: 25
+---
+
+## "WebGPU unavailable" / `DenoiserUnsupportedError` on create
+
+`Denoiser.create()` probes for an adapter before it lets onnxruntime-web try
+(so you get a clear error instead of a cryptic WASM failure deeper in). If
+none is available, it throws:
+
+```
+denoiser 2.x requires WebGPU (no adapter available). See browser support:
+Chrome/Edge stable, Safari 26+. For WebGL environments use denoiser 0.x (v1).
+```
+
+Current support: **Chrome/Edge stable**, **Safari 26+**, **Firefox** (Windows
+stable, other platforms in progress). This is a hard requirement — v2 has no
+WebGL fallback. If you need to support older/unsupported browsers, stay on
+v1 (`0.0.11`); see [Migrating from v1](./migrating-from-v1) for what changed.
+
+## Black output
+
+Two usual causes:
+
+1. **Device mismatch.** You (or a library you're using) created a `GPUDevice`
+   *before* `Denoiser.create()` and built your pipelines/textures on it —
+   onnxruntime-web always creates its own device
+   ([#26107](https://github.com/microsoft/onnxruntime/issues/26107)), so
+   anything built on a different device than `denoiser.device` can't
+   interoperate with it. Create the denoiser **first**, then build your
+   renderer/pipelines on `denoiser.device` — see
+   [Custom engines](./custom-engines#the-device-contract) and
+   [three.js render targets](./three-js-render-targets#0-one-gpudevice-created-by-the-denoiser).
+2. **Reading before the work is done.** Forgetting to `await` the
+   `denoise*()` call, or (three.js) reading a freshly-created caller-owned
+   output texture before `renderer.initTexture()` has materialized its GPU
+   resource — see the
+   [pitfalls checklist](./three-js-render-targets#pitfalls-checklist).
+
+## Upside-down output
+
+Orientation is three independent flags, because color/aux/output can each
+have a different convention — see the
+[flipY family](./custom-engines#the-flipy-family):
+
+- `inputFlipY` — the `color` input. WebGPU compute-written targets (e.g. a
+  path tracer's `StorageTexture` output) are bottom-up → `true`. Rasterized
+  targets are top-down → `false`.
+- `auxInputFlipY` — `albedo`/`normal`, defaults to `inputFlipY`; set it
+  separately if your G-buffer pass has the opposite convention from color.
+- `outputFlipY` — flips the result.
+
+If the image is upside down, toggle these before looking anywhere else.
+
+## "My aux output is speckled"
+
+This is a known onnxruntime-web WebGPU execution-provider bug (not a
+denoiser defect — confirmed with a standalone vanilla-ORT repro, unrelated to
+our code), on the first convolution that reduces a >3-channel input. The
+`splitAux` option (default **on**) works around it by computing that first
+conv ourselves in WGSL and running the rest of the graph on WebGPU normally —
+verified to restore native quality.
+
+You'll see speckled aux output if:
+
+- **`splitAux: false`** was set explicitly — the workaround is off, so the
+  upstream bug is unmasked. Only do this if you have a specific reason to.
+- **You're self-hosting an old `models-v1` weights set** without the
+  `<model>.tail.onnx` + `<model>.enc0.bin` split-graph artifacts `splitAux`
+  needs. `Denoiser.create()` falls back to the plain (speckled) model with a
+  one-time console warning in this case, rather than failing outright:
+
+  ```
+  Denoiser: splitAux artifacts unavailable for <model>, aux will speckle
+  (ORT-web WebGPU Conv bug). Host <name>.tail.onnx + <name>.enc0.bin next to
+  the model, or set splitAux:false to silence.
+  ```
+
+  Mirror the current weights tag (`models-v2` or later) if you self-host —
+  see [Models & weights](../getting-started/models-and-weights) for hosting
+  details.
+
+## "My aux textures are silently ignored"
+
+If you pass `albedo`/`normal` keys whose value resolves to `undefined` (e.g.
+a three.js texture unwrap that failed and returned `undefined`, but you still
+passed the key), the denoiser degrades to the color-only model rather than
+throwing — but it warns once per input so this doesn't fail silently forever:
+
+```
+Denoiser: albedo texture could not be unwrapped — falling back to color-only model
+```
+
+If you see this warning, check whatever produced the texture — most commonly
+a stale/destroyed render target reference (re-resolve it fresh each frame;
+see the [render-targets pitfalls checklist](./three-js-render-targets#pitfalls-checklist))
+or a G-buffer pass that hasn't rendered yet.
+
+## CORS / hosting errors
+
+- **Default (`weightsUrl` unset) works out of the box** — models are served
+  from jsDelivr's GitHub endpoint (`cdn.jsdelivr.net/gh/...`), which sends
+  `access-control-allow-origin: *`.
+- **GitHub Releases assets have no CORS support** — verified dead end, don't
+  point `weightsUrl` at a Releases download URL. `release-assets.githubusercontent.com`
+  doesn't send `access-control-allow-origin` even on a plain `GET` with an
+  `Origin` header, so browser `fetch()` fails.
+- For production, host the `.onnx` files yourself (copy `models/` into your
+  own static assets/CDN and set `weightsUrl`) rather than depending on
+  someone else's default. See [Models & weights](../getting-started/models-and-weights)
+  for the full hosting comparison.
+
+## Device-lost after `dispose()` / `destroyDevice()`
+
+These two are not the same:
+
+- **`dispose()`** — safe between workloads. Frees per-image buffers and
+  extra model sessions but keeps **one** session alive on purpose, so the
+  shared device survives.
+- **`destroyDevice()`** — full teardown. Releasing the *last* ORT session
+  destroys the shared `GPUDevice` — your renderer, canvas contexts, and every
+  other resource built on it die with it (`GPUDevice.lost`, reason
+  `'destroyed'`). Only call this when the entire WebGPU stack is going away
+  (e.g. tearing down the whole app/page).
+
+If you're seeing an unexpected device-lost event, search for a
+`destroyDevice()` call (or code that lets the denoiser's session count hit
+zero) rather than `dispose()` — `dispose()` cannot destroy the device.
+
+## fp16 unavailable
+
+fp16 (`precision: 'fp16'`) needs the WebGPU `shader-f16` feature. Behavior
+differs by which API you use:
+
+- **`Denoiser.create({ precision: 'fp16' })`** — falls back automatically: if
+  session creation fails because `shader-f16` is missing, it retries once at
+  fp32 and logs `Denoiser: fp16 unavailable, falling back to fp32`. You don't
+  need to handle this yourself.
+- **The lower-level `DenoiseEngine.create()`** — no fallback. It throws
+  `DenoiserUnsupportedError: Denoiser: fp16 needs the shader-f16 WebGPU
+  feature (unavailable on this device)`. Only relevant if you're bypassing
+  `Denoiser` and driving `DenoiseEngine` directly.
+
+See the [API reference](../reference/api) for the full option/error surface.

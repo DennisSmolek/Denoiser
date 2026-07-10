@@ -1,0 +1,75 @@
+---
+title: How it works
+description: OIDN U-Net to ONNX to WebGPU — and why the pre/post pipeline is WGSL, not JS.
+nav: 10
+---
+
+## From OIDN weights to a WebGPU model
+
+OIDN publishes its trained U-Net weights as `.tza` files — its own format, loaded
+by upstream's native (C++/ISPC) runtime. There is no ONNX export upstream and no
+PyTorch anywhere in this pipeline. Instead, [`tools/onnx-convert`](https://github.com/pmndrs/denoiser/tree/main/tools/onnx-convert)
+reads the `.tza` weights directly and emits standard ONNX graphs (opset 17) offline,
+once, ahead of time — the browser never touches OIDN's original format.
+
+The exported graphs use **named dynamic dimensions** (`batch`, `height`, `width`),
+so one `.onnx` file per weight set covers any input size; the engine pins concrete
+values per session with `freeDimensionOverrides` at creation time rather than
+needing a differently-shaped export for every resolution.
+
+## Inference: onnxruntime-web on the WebGPU EP
+
+At runtime, the ONNX model runs through
+[onnxruntime-web](https://onnxruntime.ai/)'s **WebGPU execution provider** — the
+native (C++, not JS) EP bundle. Every op in the U-Net graph — convolutions,
+max-pools, concatenations, resizes — executes as a WebGPU compute dispatch.
+
+## Everything around the model is WGSL, not JavaScript
+
+The model only does convolutions. Everything else — turning your input into
+network-ready tensors and turning the network's output back into pixels — runs as
+WGSL compute shaders on the **same** `GPUDevice`, so the only CPU↔GPU round-trip in
+the whole pipeline is the one you explicitly ask for (e.g. reading `ImageData` back
+out at the end):
+
+- **Normalization** — pixel values into the network's expected range.
+- **Color transfer** — sRGB encode/decode for LDR input, or OIDN's PU (perceptually
+  uniform) transfer curve for HDR input, applied around the model exactly as
+  upstream OIDN does it.
+- **Autoexposure** — HDR input scale computed from the image's own luminance
+  (log-average over a coarse grid) when you don't pin one manually via `inputScale`.
+- **Channel packing** — color/albedo/normal interleaved into the network's expected
+  NCHW tensor layout.
+- **Tiling and overlap blending** — see below.
+
+## Whole-frame vs tiled inference
+
+The U-Net's intermediate activations scale with image resolution and channel count
+(up to ~96 channels at full res), so there's a size above which they won't fit
+comfortably in a single dispatch. The engine picks between two plans per image:
+
+- **Whole-frame (preferred).** Pad width/height up to a multiple of 16 (four
+  max-pool levels in the network require it), then run the **entire image through
+  the U-Net in one `session.run`** — batch 1, zero overlap, no seams, no wasted
+  inference. This is the default for images up to `maxRunPixels` (2048×1152 by
+  default — roughly 1080p), and needs the device's max buffer limits raised, which
+  the library does itself (see [The GPUDevice](./the-gpudevice.mdx)).
+- **Tiled fallback**, for larger images or tighter device limits: square tiles
+  (256px base, 32px overlap) batched several-per-run, blended back together with
+  sigmoid overlap weighting so tile seams don't show.
+
+Tiling isn't free: at 256px tiles with 32px overlap and 224px stride, roughly
+256²/224² ≈ **1.31×** the pixel count actually gets inferred — a fixed ~30% "overlap
+tax" on top of however many tiles the image needs (1080p at the old 256-tile
+baseline was 45 tiles; whole-frame collapses that to one run). This overlap math is
+exactly why whole-frame inference — landing when dynamic dims made pinning an
+arbitrary /16-aligned size practical — was measured as the single biggest win in the
+performance work; see [Performance](./performance.mdx) for the numbers.
+
+## fp16 end-to-end
+
+`precision: 'fp16'` isn't just a smaller model download — it threads through the
+whole pipeline: fp16 model weights, fp16 tensors, and fp16 WGSL buffers for the
+pre/post kernels (gated on the device's `shader-f16` feature; falls back to fp32
+automatically). See [Models & weights](../getting-started/models-and-weights.mdx#fp16-vs-fp32)
+for the accuracy/speed numbers.

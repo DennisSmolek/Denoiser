@@ -1,0 +1,273 @@
+---
+title: API reference
+description: The complete public API — Denoiser.create options, denoise/denoiseToFloat/denoiseTextures, properties, events, error classes, and the lower-level exports.
+nav: 30
+---
+
+Handwritten from source (`packages/denoiser/src/{types,denoiser,index}.ts`).
+Every default below is verified against the shipped implementation, not the
+type comments alone.
+
+```ts
+import { Denoiser } from 'denoiser';
+```
+
+## `Denoiser`
+
+Construction is **async-only** — the constructor is private. `Denoiser.create()`
+loads the default (color-only) model and creates the shared `GPUDevice`
+before resolving, so `denoiser.device` is available immediately after
+`await`.
+
+### `Denoiser.create(options?)`
+
+```ts
+static async create(options?: DenoiserCreateOptions): Promise<Denoiser>
+```
+
+#### `DenoiserCreateOptions`
+
+| option | type | default | meaning |
+|---|---|---|---|
+| `precision` | `'fp32' \| 'fp16'` | `'fp32'` | fp16 models + tensors + WGSL IO when the device's `shader-f16` feature is available. `Denoiser.create` auto-falls-back to fp32 (with a console warning) if session creation fails under fp16 |
+| `quality` | `Quality` (`'fast' \| 'balanced' \| 'high'`) | `'fast'` | model family: fast = `*_small`, balanced = base, high = `*_large` where that size exists for the variant. Mutable after creation via `denoiser.quality` |
+| `weightsUrl` | `string` | jsDelivr: `https://cdn.jsdelivr.net/gh/pmndrs/denoiser-weights@models-v2/models` | base URL the `.onnx` model files are fetched from |
+| `wasmPaths` | `string` | jsDelivr: `https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/` | where onnxruntime-web loads its wasm assets from |
+| `maxRunPixels` | `number` | `2048 * 1152` (2 359 296) | per-run pixel budget (padded W×H); above it the engine tiles instead of running whole-frame. See [Large images & tiling](../guides/large-images-and-tiling) |
+| `batch` | `number` | `8` | max tiles batched into one `session.run` in tiled mode |
+| `graphCapture` | `boolean` | `false` | opt-in ORT WebGPU graph capture. Leave off — measured no gain, and onnxruntime-web 1.27 crashes captured sessions after ~150–250 cumulative replays |
+| `splitAux` | `boolean` | `true` | works around an onnxruntime-web WebGPU bug on the 9-channel `cleanAux` models by running the first conv in WGSL; fetches `<model>.tail.onnx` + `<model>.enc0.bin` next to the model. Falls back to the plain (unfixed) model with a one-time console warning if those artifacts aren't hosted. No effect on 3/6-channel models |
+
+### Properties
+
+| member | type | notes |
+|---|---|---|
+| `device` | `GPUDevice` | the shared device onnxruntime-web created. Share it with your renderer — build your own pipelines on it, don't create your own device. See [Custom engines](../guides/custom-engines) |
+| `stats` | `DenoiseStats \| undefined` (getter) | per-stage wall-clock timings from the most recently *completed* run; `undefined` before the first call. See [`DenoiseStats`](#denoisestats) below |
+| `modelName` | `string \| undefined` (getter) | the model file the last call actually ran (e.g. `rt_hdr_calb_cnrm`); `undefined` before the first call. Changes automatically when different inputs (hdr/aux) select a different variant |
+| `quality` | `Quality` (getter/setter) | current quality tier; assign to switch — the next call rebuilds the engine for the new model if needed |
+
+### `denoise(color, options?)`
+
+```ts
+async denoise(color: ImgInput, options?: DenoiseImageOptions): Promise<ImageData | undefined>
+```
+
+Denoises an image-like input on the CPU-array path. Returns `undefined` only
+if `abort()` was called before the run resolved.
+
+#### `DenoiseImageOptions`
+
+| option | type | default | meaning |
+|---|---|---|---|
+| `albedo` | `ImgInput` | – | aux plane; bytes read as [0,1] **linear** (never sRGB-decoded — only `color` honors `srgb`). Must match `color`'s size or throws `DenoiserInputError` |
+| `normal` | `ImgInput` | – | aux plane; RGBA8 bytes already encoding `[-1,1]` as `[0,1]` (`n*0.5+0.5`); env/miss pixels should be `0` (→ encodes to mid-gray `0.5`). Must match `color`'s size |
+| `srgb` | `boolean` | `true` | `color` input is sRGB-encoded (photos/screens) — decoded to linear for the model, re-encoded on the way out. Set `false` if your bytes are already linear |
+| `flipY` | `boolean` | `false` | flip the result vertically |
+| `onProgress` | `(p: number) => void` | – | see [progress semantics](#progress-semantics) |
+
+### `denoiseToFloat(color, options?)`
+
+```ts
+async denoiseToFloat(color: ImgInput, options?: DenoiseImageOptions): Promise<Float32Array | undefined>
+```
+
+Same as `denoise()`, but returns normalized `[0,1]` RGBA floats (`ImageData`
+bytes ÷ 255) instead of `ImageData`. Same options, same `undefined`-on-abort
+behavior. Internally calls `denoise()`, so it pays the same 8-bit
+quantization — use `denoiseTextures` if you need real float/HDR fidelity.
+
+### `denoiseTextures(options)`
+
+```ts
+async denoiseTextures(options: DenoiseTexturesOptions): Promise<GPUTexture | undefined>
+```
+
+Zero-copy: float `GPUTexture`s in, `GPUTexture` out, no CPU round-trip.
+Returns `undefined` only if `abort()` was called before the run resolved.
+
+#### `DenoiseTexturesOptions`
+
+| option | type | default | meaning |
+|---|---|---|---|
+| `color` | `GPUTexture` | **required** | noisy beauty input — float format (`rgba16float`/`rgba32float`), always treated as **linear** (no sRGB decode on the texture path) |
+| `albedo` | `GPUTexture` | – | aux plane, `[0,1]` floats |
+| `normal` | `GPUTexture` | – | aux plane, `[-1,1]` floats — the network's `[0,1]` encoding is applied internally |
+| `hdr` | `boolean` | `false` | apply OIDN's PU transfer + autoexposure around the model |
+| `inputScale` | `number` | auto (autoexposure) | manual HDR exposure scale; set to skip the GPU autoexposure pass |
+| `inputFlipY` | `boolean` | `false` | `color` rows are bottom-up (compute-written WebGPU targets) |
+| `auxInputFlipY` | `boolean` | = `inputFlipY` | independent flip for `albedo`/`normal` when their convention differs from `color` |
+| `output` | `GPUTexture` | – | caller-owned destination. Must match `color`'s width/height, have `STORAGE_BINDING` usage, and be `rgba8unorm` or `rgba16float` — else throws. Omit to get an engine-owned texture back instead |
+| `transfer` | `OutputTransfer` (`'linear' \| 'srgb' \| 'aces-srgb'`) | `'linear'` | output encoding: `'linear'` = raw model output (HDR-safe), `'srgb'` = sRGB-encode, `'aces-srgb'` = ACES tonemap + sRGB-encode (display-ready) |
+| `outputFlipY` | `boolean` | `false` | flip the result vertically |
+| `onProgress` | `(p: number) => void` | – | see [progress semantics](#progress-semantics) |
+
+Returns your `output` texture if one was given; otherwise an **engine-owned
+`rgba8unorm` texture** valid only until the next call / a size change /
+`dispose()`/`destroyDevice()` — copy or sample it before calling again.
+
+### `abort()`
+
+```ts
+abort(): void
+```
+
+Marks the in-flight run so it resolves `undefined` instead of a result. Does
+**not** cancel GPU work already submitted — the work still completes, its
+result is just dropped. Typical use: drop a stale in-progress denoise when
+the camera/scene changed mid-run.
+
+### `dispose()`
+
+```ts
+dispose(): void
+```
+
+Frees per-image GPU buffers and all but the default (first-created) model
+session/geometry. **Keeps the shared device alive.** Safe to call between
+unrelated workloads.
+
+### `destroyDevice()`
+
+```ts
+destroyDevice(): void
+```
+
+Full teardown: releases every session, including the last one — which
+**destroys the shared `GPUDevice`**. Anything else built on `denoiser.device`
+(a three.js renderer, canvas contexts, your own pipelines) dies with it. Only
+call this when the entire WebGPU stack is going away.
+
+### `on(event, callback)`
+
+```ts
+on(event: DenoiserEvent, callback: (value: unknown) => void): () => void
+```
+
+`DenoiserEvent` is `'progress' | 'executed'`. Returns an unsubscribe
+function.
+
+- `'progress'` — same callback signature/semantics as the per-call
+  `onProgress` option, fired for *every* call (not just ones that passed
+  their own `onProgress`). See [progress semantics](#progress-semantics).
+- `'executed'` — fired once per completed call (including aborted ones) with
+  the call's result: `ImageData | Float32Array | GPUTexture | undefined`
+  depending on which method ran.
+
+### Progress semantics
+
+`onProgress` (and the `'progress'` event) receive a `0–1` fraction. In
+**tiled** mode it's called once per batch of tiles as they complete
+(incremental progress). In **whole-frame** mode there is exactly one
+implicit batch, so it's called exactly once, near the end of the run, with
+`1` — not incrementally. Don't rely on it for a smooth progress bar on
+small/whole-frame images; it's meaningful for large tiled runs.
+
+## `DenoiseStats`
+
+Returned by `denoiser.stats` — per-stage wall-clock timings (ms) from the
+most recently completed run:
+
+| field | type | meaning |
+|---|---|---|
+| `width`, `height` | `number` | the run's image size |
+| `tiles` | `number` | total tile count (`1` for whole-frame) |
+| `batches` | `number` | number of `session.run` calls |
+| `tileW`, `tileH` | `number` | the chosen tile geometry |
+| `batchSize` | `number` | tiles per batch actually used |
+| `uploadMs` | `number` | input upload + accumulate/weight buffer clear |
+| `encodeMs` | `number` | WGSL extract/accumulate encode + submit (CPU-side) |
+| `runMs` | `number` | sum of awaited `session.run()` time |
+| `resolveMs` | `number` | resolve pass + readback/map |
+| `totalMs` | `number` | wall clock for the whole call |
+
+## Errors
+
+Both extend `Error` with `name` set to match, so `err.name` or `instanceof`
+both work.
+
+| class | thrown when |
+|---|---|
+| `DenoiserUnsupportedError` | WebGPU/device-capability problems: no adapter available (`Denoiser.create()` with no WebGPU support), or `precision:'fp16'` requested on a device without `shader-f16` (only surfaces directly from the lower-level `DenoiseEngine.create()` — `Denoiser.create()` catches this case and falls back to fp32 instead) |
+| `DenoiserInputError` | bad/inconsistent inputs: `albedo`/`normal` size mismatch vs `color`, a raw `{data,width,height}` input whose byte length isn't `width*height*4`, or a model that requires albedo/normal but didn't get one |
+
+> [!NOTE]
+> An `outputTexture`/`output` with the wrong size, missing `STORAGE_BINDING`,
+> or an unsupported format throws a **plain `Error`**, not
+> `DenoiserInputError` — an inconsistency in the current source (worth
+> catching generically, or catching `Error` broadly, if you specifically
+> handle `DenoiserInputError` for input validation).
+
+See [Troubleshooting](../guides/troubleshooting) for the exact wording of
+each thrown/warned message and how to fix the underlying cause.
+
+## Types
+
+| type | shape |
+|---|---|
+| `Quality` | `'fast' \| 'balanced' \| 'high'` |
+| `ImgInput` | `ImageData \| HTMLImageElement \| HTMLCanvasElement \| HTMLVideoElement \| ImageBitmap \| OffscreenCanvas \| { data: Uint8ClampedArray; width: number; height: number }` |
+| `OutputTransfer` | `'linear' \| 'srgb' \| 'aces-srgb'` |
+| `DenoiserEvent` | `'progress' \| 'executed'` |
+
+## Advanced / lower-level exports
+
+These are exported from the package (`import { ... } from 'denoiser'`) but
+sit below `Denoiser` — most integrations never need them directly. Documented
+here for completeness; treat their shapes as more likely to change than the
+`Denoiser` surface above.
+
+### `Models`
+
+Singleton `.onnx` model loader/cache `Denoiser` uses internally.
+
+| member | type | meaning |
+|---|---|---|
+| `Models.getInstance()` | `static (): Models` | the singleton instance |
+| `path` | `string \| undefined` | subdirectory under the site root, used only when `url` is unset |
+| `url` | `string` | remote base URL for models (default: the jsDelivr `models-v2` URL — same default as `DenoiserCreateOptions.weightsUrl`) |
+| `precision` | `'fp32' \| 'fp16'` | default `'fp32'`; `Denoiser.create({ precision })` sets this |
+| `get(name, overrideUrl?)` | `(string, string?) => Promise<Uint8Array>` | fetch (and cache) a model's raw bytes |
+| `has(name)` | `(string) => boolean` | whether a model is already cached for the current precision |
+
+### `DenoiseEngine`
+
+The WebGPU/ONNX inference core `Denoiser` wraps (session management,
+tiling/geometry planning, WGSL pre/post). `Denoiser` covers everything most
+integrations need — reach for `DenoiseEngine` directly only if you're
+bypassing the high-level model-selection logic.
+
+| member | type | meaning |
+|---|---|---|
+| `DenoiseEngine.create(modelBytes, options)` | `static (Uint8Array, EngineOptions) => Promise<DenoiseEngine>` | builds a session for one specific model file. `precision:'fp16'` without `shader-f16` throws `DenoiserUnsupportedError` here (no auto-fallback — that lives in `Denoiser`) |
+| `device` | `GPUDevice` | the device this engine (and thus `Denoiser`) runs on |
+| `channels` | `number` | `3 \| 6 \| 9`, must match the loaded model |
+| `precision` | `'fp32' \| 'fp16'` (readonly) | |
+| `maxRunPixels` | `number` | mutable after creation |
+| `batch` | `number` | max tiles per run in tiled mode |
+| `lastStats` | `DenoiseStats \| undefined` | same shape as `Denoiser.stats` |
+| `graphCaptured` | `boolean` | whether this engine's sessions run with graph capture |
+| `planFor(w, h)` | `(number, number) => Plan` | the whole-frame-vs-tiled geometry the engine would choose for a size |
+| `denoise(color, w, h, options?)` | `(Uint8ClampedArray, number, number, DenoiseOptions?) => Promise<Uint8ClampedArray>` | CPU-array path |
+| `denoiseTextures(inputs, options?)` | `(TextureInputs, TextureDenoiseOptions?) => Promise<Uint8ClampedArray \| GPUTexture>` | texture path |
+| `tileGrid(w, h)` | `(number, number) => { tilesX: number; tilesY: number }` | tile grid for a size at the current settings |
+| `trim()` | `() => void` | what `Denoiser.dispose()` calls |
+| `destroy()` | `() => void` | what `Denoiser.destroyDevice()` calls |
+
+`TextureInputs` (`{ color: GPUTexture; albedo?: GPUTexture; normal?: GPUTexture }`)
+and `TextureDenoiseOptions` (`DenoiseOptions` + `inputFlipY?` + `auxInputFlipY?`
++ `toTexture?` + `outputTexture?`) are the lower-level shapes
+`DenoiseTexturesOptions` maps onto.
+
+### `determineModel(selector)`
+
+```ts
+function determineModel(selector: ModelSelector): { name: string; channels: number }
+```
+
+Resolves an OIDN model filename + channel count from a
+`{ filterType, quality, hdr, useColor, useAlbedo, useNormal, cleanAux, dirtyAux }`
+selector (`ModelSelector`) — e.g. `{ filterType: 'rt', quality: 'fast', hdr: true, useColor: true, useAlbedo: true, useNormal: true, cleanAux: true, dirtyAux: false }`
+→ `{ name: 'rt_hdr_calb_cnrm_small', channels: 9 }`. `Denoiser` calls this
+internally on every call to pick which model to run; exported for anyone
+building their own model-selection logic on `DenoiseEngine` directly.

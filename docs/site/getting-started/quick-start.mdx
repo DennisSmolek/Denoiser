@@ -1,0 +1,70 @@
+---
+title: Quick start
+description: Install denoiser and denoise your first image in a few lines.
+nav: 1
+---
+
+## Install
+
+```sh
+npm install denoiser
+```
+
+`onnxruntime-web` ships as a regular dependency, so this one package is enough to
+get going.
+
+## Hello world
+
+This is the entire "noisy image in, clean image out" flow — no three.js, no build
+tricks. It's lifted directly from
+[`examples/hello-world/src/main.ts`](https://github.com/pmndrs/denoiser/blob/main/examples/hello-world/src/main.ts):
+
+```ts
+import { Denoiser } from 'denoiser';
+
+async function run(): Promise<Denoiser> {
+  const noisyImg = document.querySelector<HTMLImageElement>('#noisy-img')!;
+  await noisyImg.decode();
+
+  const denoiser = await Denoiser.create();
+  const denoised = await denoiser.denoise(noisyImg);
+
+  const canvas = document.querySelector<HTMLCanvasElement>('#denoised')!;
+  canvas.getContext('2d')!.putImageData(denoised!, 0, 0);
+
+  return denoiser;
+}
+```
+
+Three calls do the work:
+
+1. `Denoiser.create()` — creates the WebGPU device, loads the default model.
+2. `denoiser.denoise(imageLike)` — runs it. Accepts an `HTMLImageElement`,
+   `HTMLCanvasElement`, `ImageBitmap`, `ImageData`, `HTMLVideoElement`,
+   `OffscreenCanvas`, or a raw `{ data, width, height }` object; returns `ImageData`.
+3. `putImageData` — paint the result.
+
+[**Live demo →**](https://pmndrs.github.io/denoiser/hello-world/) — the deployed
+page shows this exact source next to the noisy/denoised comparison.
+
+## What happens on first run
+
+`Denoiser.create()` fetches the model it needs from the default CDN
+(`weightsUrl`, jsDelivr by default) — nothing ships inside the npm package itself.
+Model files run **0.6–15 MB** depending on quality tier and precision (see
+[Models & weights](./models-and-weights.mdx) for the full size table); only the one
+variant your call actually needs is fetched, not the full set. The fetched bytes are
+cached in memory for the life of the page (and by the browser's normal HTTP cache
+across page loads), so only the very first `denoise()` call pays the download.
+
+> [!NOTE]
+> Production apps should host the models themselves rather than rely on the default
+> CDN URL — see [Models & weights](./models-and-weights.mdx#hosting-them) for the
+> `weightsUrl` option.
+
+## Next
+
+- [Models & weights](./models-and-weights.mdx) — quality tiers, aux inputs, self-hosting.
+- [How it works](../concepts/how-it-works.mdx) — what's actually happening on the GPU.
+- [The GPUDevice](../concepts/the-gpudevice.mdx) — sharing the device with three.js
+  for a zero-copy pipeline.

@@ -1,0 +1,147 @@
+---
+title: Generating aux inputs
+description: G-buffer recipes and OIDN's exact conventions for albedo/normal aux planes — including the three real bugs we shipped and fixed.
+nav: 21
+---
+
+OIDN's aux-guided models (`*_alb`, `*_nrm`, `*_calb_cnrm`) trade a second/third
+G-buffer render for sharply better quality at low sample counts — the same
+noisy color input denoises with far less residual blur/ghosting once the
+network can see *where* geometry edges and material boundaries actually are.
+The [gallery demo](https://pmndrs.github.io/denoiser/gallery/) has an aux
+on/off toggle on identical frames so you can see the delta directly; the
+[aux-inputs demo](https://pmndrs.github.io/denoiser/aux-inputs/) shows the
+color/albedo/normal planes exactly as the network sees them, including the
+broken versions below.
+
+> [!NOTE]
+> Aux is optional — `color`-only models work fine. Only reach for aux once
+> you've got denoise working end-to-end; it adds a second (or third) render
+> pass and some conventions that are easy to get subtly wrong (see below).
+
+## What OIDN expects
+
+| plane | range | encoding | notes |
+|---|---|---|---|
+| `albedo` | `[0,1]` | **linear**, never sRGB | unlit base/diffuse color. Only the `color` input honors an `srgb` option — albedo bytes/floats are read as-is |
+| `normal` | `[-1,1]` | view-space | image path (`ImgInput`/RGBA8 bytes): pre-encode to `[0,1]` yourself as `n * 0.5 + 0.5`. Texture path (`GPUTexture`): pass raw `[-1,1]` floats — the engine encodes internally |
+| env / miss pixels | `normal = 0` | — | a null vector, which encodes to `0.5` (mid-gray) — OIDN's convention for "no surface here". Don't leave garbage in these pixels |
+
+Both channels are aux **guides**, not literal composited output — they don't
+need to be physically correct, just consistent with these conventions.
+
+### HDR albedo must be clamped
+
+Albedo can exceed `[0,1]` for HDR environment/emissive colors seen directly
+(an env pixel's "albedo" is its own color, which can be arbitrarily bright).
+The engine defensively clamps albedo to `[0,1]` in the texture path
+(`ort/wgsl.ts`), but don't rely on that alone — an unclamped HDR albedo plane
+was one of [the three real aux bugs](#the-real-bugs-we-shipped) below, and
+clamping upstream (where you rasterize) keeps energy loss predictable instead
+of accidental.
+
+## Rasterizing the G-buffer (three.js MRT)
+
+Two passes, because albedo and normal want **different scene state** — see
+[the real bugs](#the-real-bugs-we-shipped) for why:
+
+```ts
+import { mrt, diffuseColor, normalView } from 'three/tsl';
+
+// albedo pass: background ON. An env-hit pixel's albedo IS its own color —
+// that's correct, and the engine clamps it defensively for HDR values.
+renderer.setMRT(mrt({ albedo: diffuseColor }));
+renderer.setRenderTarget(albedoRT);
+renderer.render(scene, camera);
+
+// normal pass: background OFF (clear to 0 -> encodes to the 0.5 "no surface"
+// convention). A rasterized background quad's normalView would otherwise be a
+// meaningless screen-space gradient, not "no surface".
+const bg = scene.background;
+scene.background = null;
+renderer.setMRT(mrt({ normal: normalView }));
+renderer.setRenderTarget(normalRT);
+renderer.render(scene, camera);
+scene.background = bg;
+
+renderer.setRenderTarget(null);
+renderer.setMRT(null);
+```
+
+Then unwrap both targets to `GPUTexture`s the same way as the color target
+(see [three.js render targets](./three-js-render-targets#unwrap-the-threejs-texture-to-a-raw-gputexture))
+and pass them straight through:
+
+```ts
+const out = await denoiser.denoiseTextures({
+  color, albedo, normal,
+  hdr: true,
+  inputFlipY: true,       // tracer output: bottom-up
+  auxInputFlipY: false,   // raster G-buffer: top-down
+});
+```
+
+Rasterized aux is noise-free, so passing both planes auto-selects the
+higher-quality `cleanAux` (`*_calb_cnrm`) model family. The G-buffer is
+view-dependent — re-render it whenever the camera moves, or you'll get
+ghosting between the (stale) guide and the (fresh) color.
+
+### First-hit rule: force opaque for the aux passes
+
+> [!IMPORTANT]
+> Alpha-blended aux is garbage — OIDN's guides assume one surface per pixel.
+> Force every transparent material opaque before rendering **both** aux
+> passes (restore it afterward), even if your beauty pass uses real
+> transparency:
+
+```ts
+function forceOpaque(scene: THREE.Scene) {
+  const restore: Array<() => void> = [];
+  scene.traverse((obj) => {
+    const mats = obj.isMesh ? [].concat(obj.material) : [];
+    for (const m of mats) {
+      if (m.transparent) {
+        m.transparent = false;
+        m.needsUpdate = true;
+        restore.push(() => { m.transparent = true; m.needsUpdate = true; });
+      }
+    }
+  });
+  return restore;
+}
+```
+
+Run this before each aux pass, call every `restore()` fn in a `finally` block
+(leaked MRT/material state breaks every later render), and always
+`setRenderTarget(null)` / `setMRT(null)` afterward too.
+
+## The real bugs we shipped
+
+These are documented as fixed, not hypothetical — they were real defects in
+an early example build (`docs/status/STATUS.md`), and are exactly what the
+[aux-inputs demo](https://pmndrs.github.io/denoiser/aux-inputs/)'s
+correct/incorrect examples show side by side:
+
+1. **Env normals were a garbage gradient.** Rendering the normal pass with the
+   scene background enabled fed the network a screen-space color gradient
+   from the background shader where it expected `normal = 0`. Fix: disable
+   `scene.background` for the normal pass only (see above) — a cleared target
+   reads as `0`, which is exactly OIDN's env convention.
+2. **Alpha-blended normals.** Transparent surfaces blending multiple normals
+   into one pixel produced a nonsensical averaged vector. Fix: force every
+   transparent material opaque for both aux passes (first-hit only), restore
+   after.
+3. **Unclamped HDR albedo.** An env pixel's albedo (its own HDR color) could
+   exceed `[0,1]` and was fed to the network un-clamped. Fix: clamp albedo to
+   `[0,1]` defensively in the engine (`ort/wgsl.ts`) in addition to clamping
+   at render time.
+
+## Debugging: see exactly what the network sees
+
+The [aux-inputs demo](https://pmndrs.github.io/denoiser/aux-inputs/) renders
+color/albedo/normal as raw network input — the same debug view used to catch
+the bugs above. If your denoised output looks worse *with* aux than without,
+dump these three planes before anything else; a wrong-looking guide is almost
+always the cause, not the model.
+
+Live: [aux-inputs](https://pmndrs.github.io/denoiser/aux-inputs/) · [gallery](https://pmndrs.github.io/denoiser/gallery/)

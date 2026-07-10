@@ -1,0 +1,122 @@
+---
+title: Large images & tiling
+description: maxRunPixels, the whole-frame vs tiled decision, the memory math behind it, and when to tune it down.
+nav: 23
+---
+
+Every `denoise` / `denoiseTextures` call picks a run geometry for the image
+size before it does anything else. Understanding that choice matters once
+you're past thumbnail-sized demos — it's the difference between one model
+run and a batched tile ladder, and it's the main lever if you're tight on
+GPU memory.
+
+## Whole-frame vs the tile ladder
+
+**Whole-frame** (preferred): the padded image (rounded up to a multiple of 16
+per side — the U-Net has 4 maxpool levels) fits under `maxRunPixels` *and*
+under the device's buffer limits → one `session.run` for the entire image.
+No overlap redundancy, no seams, no blending pass.
+
+**Tiled fallback**: images too big for whole-frame (or on a device with tight
+buffer limits) run through a ladder of candidate tile sizes — **1024² → 512²
+→ 256²** (the last is the configurable base `tile`, default 256) — picking the
+largest that fits, with **32px overlap** between tiles and up to `batch` tiles
+batched into a single `session.run`. Overlapping regions are blended with a
+sigmoid falloff so tile seams don't show. `denoiser.stats` reports the chosen
+`tileW`/`tileH`/`batchSize`/`tiles`/`batches` for the last run; `onProgress`
+only fires in this mode (whole-frame is one atomic step).
+
+Measured: **2560×1440 correctly falls back to the tile ladder** (1024² tiles,
+batch 2, seam-free) while 1920×1080 fits whole-frame — see
+[Performance](../concepts/performance) for the full bench table.
+
+## `maxRunPixels`
+
+```ts
+const denoiser = await Denoiser.create({ maxRunPixels: 2048 * 1152 }); // default
+```
+
+Default **2048×1152** (≈2.36M px, just over 1080p). This is a pixel *budget*,
+not a hard resolution cap — any aspect ratio that pads to fewer pixels than
+the budget runs whole-frame; anything above it tiles. Raising it lets bigger
+frames run whole-frame on GPUs with enough memory; the practical ceiling is
+still gated by the device's buffer limits (see below), so raising it past
+what the device can hold has no effect — the engine checks both and falls
+back to tiling if either is exceeded.
+
+## The memory math
+
+The U-Net's decoder concat levels are the widest point in the graph — up to
+**~96 channels** at full resolution (a conservative upper bound the engine
+uses, `WORST_FULLRES_CHANNELS` in `ort/engine.ts`, covering every model
+variant's decoder concat). A run's worst single intermediate tensor is
+roughly:
+
+```
+worst tensor bytes ≈ (padded W) × (padded H) × ~96 channels × bytes-per-element
+```
+
+`bytes-per-element` is 4 for fp32, 2 for fp16. Some worked numbers (padded to
+/16, whole-frame):
+
+| size | padded | fp32 worst tensor | fp16 worst tensor |
+|---|---|---|---|
+| 512×512 | 512×512 | ~96 MB | ~48 MB |
+| 1280×720 | 1280×720 | ~338 MB | ~169 MB |
+| 1920×1080 | 1920×1088 | ~765 MB | **~400 MB** |
+
+That's *one* intermediate tensor's worst case, used to gate whether a
+geometry is even attempted — actual peak device memory during a run is
+higher once you add the input/output NCHW buffers, the accumulate/weight
+buffers, the model's own weights, and ORT's session overhead. For a whole-frame
+1080p fp16 run, expect **peak GPU memory in the neighborhood of ~1GB**. This
+is also why the denoiser requests the adapter's *max* limits/features when it
+creates the device (see [Custom engines](./custom-engines#the-device-contract))
+— ORT's default minimal-device request caps storage buffers far below what a
+whole-frame run needs.
+
+Before attempting a geometry, the engine checks the worst-tensor estimate
+against `min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize)`
+and falls back down the tile ladder if it doesn't fit — this is a *second*,
+independent gate from `maxRunPixels`.
+
+## When to lower `maxRunPixels`
+
+The default targets a reasonably capable discrete/Apple-silicon GPU running
+the denoiser more or less on its own. Turn it down when:
+
+- **You're memory-constrained or on mobile.** Integrated/mobile GPUs often
+  have much lower `maxBufferSize` limits than desktop discrete GPUs — a
+  smaller budget forces tiling (more, smaller allocations) before you hit a
+  hard device limit and the run fails outright.
+- **You're sharing the device with a heavy scene.** The denoiser's device is
+  also your renderer's device (see [Custom engines](./custom-engines)) — a
+  path tracer's own buffers/textures compete with the denoiser's whole-frame
+  tensors for the same budget. If your scene is already memory-heavy, give
+  the denoiser a smaller slice rather than finding out via an allocation
+  failure mid-session.
+- **You want predictable latency over peak throughput.** Tiled runs process
+  in smaller `session.run` chunks with `onProgress` callbacks — useful for
+  staying responsive in a live/progressive loop even if the total time is
+  slightly higher than one big whole-frame run.
+
+## Session-per-geometry caching
+
+Each distinct `(tileW, tileH, batch)` geometry gets its own ONNX
+`InferenceSession` plus dedicated GPU IO buffers (the session holds a GPU
+copy of the model weights pinned to those dims via
+`freeDimensionOverrides`) — building one is not free. The engine keeps a tiny
+LRU of up to **4** geometries so repeated calls at the same size (the common
+case: one output resolution, called every frame) reuse the existing session.
+
+Practical consequence: **resizing the output** (canvas resize, window resize,
+switching between whole-frame and tiled at a size boundary) evicts/creates a
+geometry and pays a session-build cost on the next call. If your app resizes
+frequently (a resizable viewport, not just a one-time canvas setup), expect
+an occasional latency spike on resize rather than uniform per-frame timing —
+this is a one-time cost per distinct size, not per frame at that size.
+
+`denoiser.dispose()` releases all but the default (first-created) geometry's
+session — call it between unrelated workloads to free the GPU memory the
+extra sessions hold, without losing the shared device (see
+[Troubleshooting](./troubleshooting#device-lost-after-dispose-destroydevice)).

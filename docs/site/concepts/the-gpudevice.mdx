@@ -1,0 +1,76 @@
+---
+title: The GPUDevice
+description: Who owns the device, how to share it with your renderer, and the lifetime rules that follow.
+nav: 11
+---
+
+If you're only ever calling `denoiser.denoise(image)` you can skip this page —
+device sharing only matters once you want a zero-copy pipeline with your own
+renderer (three.js, a custom WebGPU engine, etc).
+
+## Who creates the device
+
+onnxruntime-web **creates and owns the `GPUDevice`** — it ignores one you try to
+inject ([onnxruntime#26107](https://github.com/microsoft/onnxruntime/issues/26107)).
+That fixes the order you have to work in: **create the `Denoiser` first**, then hand
+its device to your renderer, not the other way around.
+
+```ts
+const denoiser = await Denoiser.create({ precision: 'fp16' });
+
+// three.js — pass the ORT-owned device in
+const renderer = new THREE.WebGPURenderer({ device: denoiser.device });
+```
+
+Do this and your path tracer, denoiser, and any post-processing all run on one
+device with zero copies between them — render target in, `denoiseTextures()`,
+render target out.
+
+## The max-limits patch
+
+WebGPU devices default to fairly small buffer caps (roughly 128–256 MB depending on
+the limit). A whole-frame U-Net's intermediate activations at any real resolution
+blow past that easily — and so does a path tracer's own buffers. So when
+`Denoiser.create()` requests its device, it temporarily patches
+`GPUAdapter.requestDevice` to ask for the adapter's **full** limits and features
+instead of WebGPU's conservative defaults, then restores the original
+`requestDevice` immediately afterward. This happens automatically; you don't
+configure it. It's the same trick the path tracer examples use when they need to
+request a device themselves.
+
+Net effect: the shared device can hold whole-frame U-Net intermediates *and* your
+renderer's own pipelines, without you having to hand-tune `requiredLimits`.
+
+## Device lifetime rules
+
+Two rules follow directly from ORT owning the device:
+
+1. **`destroyDevice()` destroys the shared device.** When the last ORT session is
+   released, ORT destroys its device — three.js, canvas contexts, and every other
+   resource on that device die with it (`GPUDevice.lost`, reason `'destroyed'`).
+   `dispose()` is the safe between-workloads cleanup instead: it frees buffers and
+   extra sessions but deliberately **retains one session**, so the device survives.
+   Only call `destroyDevice()` when the entire WebGPU stack is going away.
+2. **Model switches are safe.** Changing `quality` or otherwise swapping the active
+   model overlaps creating the new engine with disposing the old one, specifically
+   so the session count never hits zero mid-swap (which would trigger rule 1
+   accidentally). Don't "optimize" that ordering away if you're working in the
+   internals — it's there to prevent releasing the last session by accident during
+   a routine model switch.
+
+> [!IMPORTANT]
+> If your whole WebGPU stack unexpectedly dies — canvases go blank, three.js throws
+> device-lost errors — check whether something called `destroyDevice()` (or let the
+> last ORT session get released). Use `dispose()` for routine cleanup between
+> workloads instead.
+
+## `dispose()` vs `destroyDevice()`
+
+| | keeps device alive | use for |
+|---|---|---|
+| `dispose()` | yes | freeing buffers/extra sessions between workloads, safe default |
+| `destroyDevice()` | **no** | full teardown when the whole WebGPU stack is going away |
+
+See [three.js render targets in/out](../guides/three-js-render-targets.mdx) for the
+full worked example — unwrapping three.js textures to raw `GPUTexture`s, orientation
+flags, and the live-loop pacing pattern that goes with a shared device.

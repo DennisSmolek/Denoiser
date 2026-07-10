@@ -1,0 +1,139 @@
+---
+title: Custom engines & raw WebGPU
+description: Integrate the denoiser with any WebGPU engine (or none) — the device contract, texture requirements, and the CPU fallback for engines that can't share a device.
+nav: 22
+---
+
+The denoiser isn't three.js-specific. `denoiseTextures` takes and returns
+plain `GPUTexture`s on a plain `GPUDevice` — anything that can get you those
+two things works: a hand-written WGSL compute shader, a different
+framework's renderer, or nothing at all. This guide covers the parts that
+are the same regardless of what's on the other side; the
+[three.js guide](./three-js-render-targets) covers three-specific unwrapping.
+
+Live reference implementation (a ~200-line single-file WGSL path tracer,
+zero framework): [webgpu-raw](https://pmndrs.github.io/denoiser/webgpu-raw/).
+
+## The device contract
+
+onnxruntime-web **creates and owns the `GPUDevice`** it runs on — it ignores
+one you inject ([onnxruntime#26107](https://github.com/microsoft/onnxruntime/issues/26107)).
+That fixes the integration order for any engine you write yourself:
+
+> [!IMPORTANT]
+> Create the denoiser **first**. Build your own pipelines, buffers, and
+> textures on `denoiser.device` — don't request your own adapter/device.
+
+```ts
+const denoiser = await Denoiser.create({ precision: 'fp16' });
+const device = denoiser.device; // GPUDevice — build everything on this
+
+const pipeline = device.createComputePipeline({ /* your toy path tracer */ });
+```
+
+This also matters for buffer limits: the first time a device is created, the
+denoiser runs under a scoped patch that requests the adapter's **max**
+limits/features (restored immediately after) — ORT alone requests a minimal
+device that's too small for whole-frame U-Net intermediates. If something
+else creates the device first, you lose that.
+
+**Lifetime rules**, same as any consumer of `denoiser.device`:
+
+- `denoiser.dispose()` — frees buffers/extra sessions, **keeps the device**.
+  Safe between workloads.
+- `denoiser.destroyDevice()` — releases the last ORT session, which
+  **destroys the shared device** — your pipelines, buffers, and textures on
+  it die too (`GPUDevice.lost`, reason `'destroyed'`). Only call this when
+  the whole WebGPU stack is going away.
+
+## Texture requirements for `denoiseTextures`
+
+| input | requirement |
+|---|---|
+| `color` | **float** texture (`rgba16float` / `rgba32float`), **linear** values, on `denoiser.device` |
+| LDR | values in `[0,1]`, omit `hdr` |
+| HDR | pass `hdr: true` — OIDN's PU transfer + autoexposure run around the model (or pin exposure with `inputScale`, overriding autoexposure) |
+| `albedo` / `normal` | optional aux planes, same texture/device requirements — see [Generating aux inputs](./generating-aux-inputs) for the exact conventions |
+
+> [!NOTE]
+> Texture inputs are **always** treated as linear — there's no per-call sRGB
+> decode for the texture path (unlike the image path's `srgb` option on
+> `denoise()`). If your engine's render target holds sRGB-encoded bytes,
+> linearize it yourself (in your own shader, or render to a linear float
+> target in the first place) before handing it to `denoiseTextures`.
+
+There's no format/size constraint beyond "float and linear" — any size runs,
+whole-frame up to `maxRunPixels` and tiled above it (see
+[Large images & tiling](./large-images-and-tiling)).
+
+## Output options
+
+```ts
+const out = await denoiser.denoiseTextures({ color, hdr: true, output: myTexture });
+```
+
+- **No `output`** — returns an **engine-owned `rgba8unorm` texture**, valid
+  until the next call / a size change / teardown. Copy or sample it before
+  calling again.
+- **`output: myTexture`** — resolves into a texture **you** own instead. It
+  must:
+  - match the input's width/height exactly,
+  - have `GPUTextureUsage.STORAGE_BINDING` in its usage,
+  - be `rgba8unorm` (clamped, display-ready) or `rgba16float` (unclamped,
+    keeps HDR range — sRGB texture *formats* can't be `STORAGE_BINDING`, so
+    encoding is chosen via `transfer` instead of the texture format).
+
+`transfer` (`'linear' | 'srgb' | 'aces-srgb'`, default `'linear'`) picks the
+output encoding independent of format — `'linear'` for an HDR result your
+engine tonemaps itself, `'aces-srgb'` for something display-ready you blit
+straight to a canvas, `'srgb'` for sRGB-encoded-but-not-tonemapped LDR
+pipelines.
+
+## The flipY family
+
+Three independent flips, because color/aux/output can each have a different
+vertical convention:
+
+| option | flips | typical case |
+|---|---|---|
+| `inputFlipY` | `color` reads | on for compute-written targets (storage-texture output is bottom-up); off for rasterized targets |
+| `auxInputFlipY` | `albedo`/`normal` reads | defaults to `inputFlipY`; set separately when your aux G-buffer comes from a different pass with the opposite convention |
+| `outputFlipY` | the result | flip the denoised output vertically |
+
+If a result looks upside down, these three are the first thing to check —
+see [Troubleshooting](./troubleshooting).
+
+## When you can't share a device: the CPU path
+
+Some engines create and own their WebGPU device internally with no way to
+inject an external one — you end up with **two separate `GPUDevice`s** that
+can't share textures. (Concretely: Babylon.js's `WebGPUEngine` has no option
+to adopt an external device — `initAsync` hard-codes its own adapter/device
+acquisition — and ORT can't adopt Babylon's either, same #26107 constraint
+from the other direction. See the [babylon demo](https://pmndrs.github.io/denoiser/babylon/)
+for the real thing.)
+
+When zero-copy genuinely isn't possible, fall back to the CPU-copy path: read
+the rendered frame back to CPU pixels, run the plain (non-texture) `denoise()`
+call, then upload the result into a texture your engine owns.
+
+```ts
+// 1. read the rendered frame back (full-float; width divisible by 64 is the
+//    fast path for most engines' readback implementations)
+const pixels = await myRenderTarget.readPixels();
+
+// 2. denoise on the CPU-array path — an ordinary ImgInput, no shared device needed
+const clean = await denoiser.denoise(pixels, { albedo, normal });
+
+// 3. upload the result back into a texture your engine can sample
+myEngineTexture.update(clean.data);
+```
+
+Be honest with yourself about the cost here: this is a full GPU→CPU→GPU
+round-trip per denoise, on top of the 8-bit RGBA quantization `denoise()`
+implies (`denoiseToFloat()` gets you normalized floats back if you need them,
+but the readback itself is still the expensive part). It's the right choice
+when zero-copy is structurally unavailable, not a style preference — reach
+for `denoiseTextures` and a shared device whenever the engine allows it.
+
+Live: [webgpu-raw](https://pmndrs.github.io/denoiser/webgpu-raw/) · [babylon](https://pmndrs.github.io/denoiser/babylon/)

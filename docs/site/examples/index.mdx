@@ -1,0 +1,53 @@
+---
+title: Examples
+description: Every live demo, deployed and runnable in your own browser.
+nav: 40
+---
+
+All demos below are live, deployed pages — not screenshots or embeds. Every one
+needs a **WebGPU browser** (Chrome/Edge stable, Safari 26+, Firefox rolling out);
+see [Introduction](../getting-started/introduction.mdx#browser-support) if a demo
+shows a "needs WebGPU" banner instead of running.
+
+### [Hello world](https://pmndrs.github.io/denoiser/hello-world/)
+The 10-line story: a noisy render → `Denoiser.create()` → `denoise()` → canvas. No
+three.js, no build tricks — the page shows the exact source next to the result.
+Start here. Walkthrough: [Quick start](../getting-started/quick-start.mdx).
+
+### [Gallery](https://pmndrs.github.io/denoiser/gallery/)
+The flagship quality demo. Real path-traced scenes at 1–16 samples per pixel: drag
+the before/after divider, step the noise ladder, toggle albedo+normal guidance live
+on the same frame. Runs real in-browser inference on precomputed inputs, so it shows
+genuine speed without needing a live path tracer.
+
+### [Aux inputs](https://pmndrs.github.io/denoiser/aux-inputs/)
+What the network actually sees. Shows color, albedo, and normal exactly as fed to
+the model, alongside examples of the real mistakes that degrade aux quality —
+environment-hit normals, alpha-blended normals, HDR albedo clamping. The live
+companion to [Models & weights](../getting-started/models-and-weights.mdx#what-aux-buys)
+and the aux-inputs guide.
+
+### [webgpu-raw](https://pmndrs.github.io/denoiser/webgpu-raw/)
+Proof of engine-neutrality: a single-file WGSL toy path tracer with no framework —
+no three.js, no Babylon, no bundler magic — feeding `denoiseTextures` on the same
+`GPUDevice`. The reference for integrating a custom engine that isn't three.js.
+
+### [three.js path tracer](https://pmndrs.github.io/denoiser/three-pathtracer-webgpu/)
+three r185 `WebGPUPathTracer` and this library sharing one `GPUDevice`: progressive
+path tracing, denoised live while it accumulates, CPU-copy and zero-copy paths
+side by side. See [The GPUDevice](../concepts/the-gpudevice.mdx) for how the shared
+device works.
+
+> [!NOTE]
+> The pathtracer dependency (`three-gpu-pathtracer`'s `webgpu-pathtracer` branch) is
+> unreleased upstream and pinned to a commit SHA for this demo — expect it to move
+> to a proper release eventually.
+
+### [LDraw Eiffel Tower](https://pmndrs.github.io/denoiser/ldraw-eiffel/)
+A LEGO Eiffel Tower on a table: fast raster preview while you orbit, path-trace +
+denoise the moment the camera comes to rest. Same pinned-pathtracer caveat as above.
+
+### [Benchmark](https://pmndrs.github.io/denoiser/bench/)
+The performance harness behind the numbers in [Performance](../concepts/performance.mdx):
+cold + warm timings, per-stage stats, and fp16-vs-fp32 PSNR across image sizes —
+reproducible in your own browser, on your own hardware.
