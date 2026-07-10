@@ -1,0 +1,22 @@
+{
+  "name": "upscale-pipeline",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Three packages, one GPUDevice: three.js render (low-res) → denoiser → @pmndrs/upscaler (FSR) → canvas, zero CPU copies.",
+  "scripts": {
+    "dev": "vite --port 5184",
+    "build": "vite build",
+    "preview": "vite preview --port 5184"
+  },
+  "dependencies": {
+    "@pmndrs/upscaler": "0.1.0",
+    "denoiser": "workspace:*",
+    "three": "^0.185.0"
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.27.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4"
+  }
+}

@@ -241,6 +241,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@pmndrs/upscaler@npm:0.1.0":
+  version: 0.1.0
+  resolution: "@pmndrs/upscaler@npm:0.1.0"
+  peerDependencies:
+    three: ">=0.184.0"
+  checksum: 10c0/cadd2721978c068bb5355931d2bc27047005df63e59462ab0502b0ec37b18d2510a194e9b81cc39b9999e8a39b36c97fd7932e8ee31d755f9e498391a20cb388
+  languageName: node
+  linkType: hard
+
 "@protobufjs/aspromise@npm:^1.1.1, @protobufjs/aspromise@npm:^1.1.2":
   version: 1.1.2
   resolution: "@protobufjs/aspromise@npm:1.1.2"
@@ -3154,6 +3163,19 @@ __metadata:
   checksum: 10c0/e70e0339f6b36f34c9816f6bf9662372bd241714dc77508d231d08386d94f2c4aa1ba1318614f92015f40d45aae1b9075cd30bd490efbe39387b60a76ca3f045
   languageName: node
   linkType: hard
+
+"upscale-pipeline@workspace:examples/upscale-pipeline":
+  version: 0.0.0-use.local
+  resolution: "upscale-pipeline@workspace:examples/upscale-pipeline"
+  dependencies:
+    "@pmndrs/upscaler": "npm:0.1.0"
+    denoiser: "workspace:*"
+    onnxruntime-web: "npm:^1.27.0"
+    three: "npm:^0.185.0"
+    typescript: "npm:^5.9.3"
+    vite: "npm:^8.1.4"
+  languageName: unknown
+  linkType: soft
 
 "uri-js@npm:^4.2.2":
   version: 4.4.1

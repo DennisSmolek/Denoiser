@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>denoiser — upscale pipeline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e14;
+        --panel: #141922;
+        --panel-hover: #1b2230;
+        --border: #232b3a;
+        --text: #e6edf3;
+        --muted: #9aa7b8;
+        --accent: #90cdf4;
+        --good: #7ee787;
+        --render: #f0b866;
+        --denoise: #90cdf4;
+        --upscale: #7ee787;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+      h1 { font-size: 1.9rem; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
+      h1 .name { color: var(--accent); }
+      .tagline { color: var(--muted); font-size: 1.02rem; margin: 0 0 1.5rem; max-width: 60rem; }
+      .tagline code { color: var(--text); background: #0006; padding: 0 0.3em; border-radius: 4px; }
+      .pkgs { color: var(--accent); font-weight: 600; }
+
+      h2.section-label {
+        font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted); margin: 0 0 0.5rem; font-weight: 600;
+      }
+
+      .controls {
+        display: flex; flex-wrap: wrap; gap: 1.5rem 2rem;
+        align-items: flex-end; margin: 0 0 1.25rem;
+      }
+      .control-group { display: flex; flex-direction: column; gap: 0.45rem; }
+
+      .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      .segmented button {
+        appearance: none; border: none; background: var(--panel); color: var(--text);
+        padding: 0.4rem 0.85rem; font: inherit; font-size: 0.85rem; cursor: pointer;
+        border-right: 1px solid var(--border);
+      }
+      .segmented button:last-child { border-right: none; }
+      .segmented button:hover { background: var(--panel-hover); }
+      .segmented button[aria-pressed="true"] { background: var(--accent); color: #0b0e14; font-weight: 600; }
+
+      input[type="range"] { width: 150px; accent-color: var(--accent); }
+      .rangeval { color: var(--good); font-variant-numeric: tabular-nums; }
+      label.rng { font-size: 0.82rem; color: var(--muted); display: flex; flex-direction: column; gap: 0.3rem; }
+
+      /* viewer */
+      #view {
+        display: block; width: 100%; max-width: 1120px; aspect-ratio: 16 / 9;
+        border-radius: 10px; border: 1px solid var(--border); background: #05070a;
+        image-rendering: auto;
+      }
+      figure { margin: 0 0 1rem; }
+      figcaption { color: var(--muted); font-size: 0.82rem; margin-top: 0.5rem; }
+
+      /* per-stage cost bar */
+      #stages { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.5rem 0 0.25rem; max-width: 640px; }
+      .stage { display: grid; grid-template-columns: 5.5rem 1fr 5rem; gap: 0.6rem; align-items: center; font-size: 0.85rem; }
+      .stage .tag { color: var(--muted); }
+      .stage .bar { height: 12px; border-radius: 6px; background: #0006; overflow: hidden; }
+      .stage .bar > span { display: block; height: 100%; width: 0; transition: width 0.12s ease; }
+      .stage.render .bar > span { background: var(--render); }
+      .stage.denoise .bar > span { background: var(--denoise); }
+      .stage.upscale .bar > span { background: var(--upscale); }
+      .stage .ms { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+      #resline { color: var(--muted); font-size: 0.85rem; margin: 0.75rem 0 0; }
+      #resline b { color: var(--text); }
+      #status { color: var(--muted); font-size: 0.85rem; min-height: 1.3em; margin: 0.75rem 0 0; }
+      #status.err { color: #ff9a9a; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="name">denoiser</span> · upscale pipeline</h1>
+        <p class="tagline">
+          Three pmndrs packages on <b>one <code>GPUDevice</code></b>:
+          <span class="pkgs">three.js</span> renders a noisy scene at low resolution,
+          <span class="pkgs">denoiser</span> cleans it, and
+          <span class="pkgs">@pmndrs/upscaler</span> (AMD FSR) upscales it to full canvas
+          resolution — no CPU pixel copies in the chain. Each GPU texture is handed
+          straight to the next stage on the device the denoiser created.
+          Upscaling here uses <b>FSR1 (spatial)</b>: the denoiser is a discrete,
+          stills-oriented pass, which composes cleanly with FSR's per-frame stateless
+          spatial path (the temporal path wants per-frame motion vectors — see the note below).
+        </p>
+      </header>
+
+      <section class="controls">
+        <div class="control-group">
+          <h2 class="section-label">Denoise</h2>
+          <div class="segmented" id="denoise-seg">
+            <button data-v="on" aria-pressed="true">on</button>
+            <button data-v="off">off</button>
+          </div>
+        </div>
+        <div class="control-group">
+          <h2 class="section-label">Upscale</h2>
+          <div class="segmented" id="upscale-seg">
+            <button data-v="on" aria-pressed="true">FSR1 spatial</button>
+            <button data-v="off">off (nearest)</button>
+          </div>
+        </div>
+        <label class="rng">Noise (samples/px): <span class="rangeval" id="spp-val">6</span>
+          <input type="range" id="spp" min="1" max="64" step="1" value="6" />
+        </label>
+        <label class="rng">FSR sharpness: <span class="rangeval" id="sharp-val">0.80</span>
+          <input type="range" id="sharp" min="0" max="1" step="0.05" value="0.8" />
+        </label>
+      </section>
+
+      <figure>
+        <canvas id="view" width="1280" height="720"></canvas>
+        <figcaption id="resline">initializing…</figcaption>
+      </figure>
+
+      <section>
+        <h2 class="section-label">Per-stage GPU cost</h2>
+        <div id="stages">
+          <div class="stage render"><span class="tag">render</span><span class="bar"><span id="bar-render"></span></span><span class="ms" id="ms-render">– ms</span></div>
+          <div class="stage denoise"><span class="tag">denoise</span><span class="bar"><span id="bar-denoise"></span></span><span class="ms" id="ms-denoise">– ms</span></div>
+          <div class="stage upscale"><span class="tag">upscale</span><span class="bar"><span id="bar-upscale"></span></span><span class="ms" id="ms-upscale">– ms</span></div>
+        </div>
+        <p id="resline" style="margin-top:0.6rem">total <b id="ms-total">– ms</b> · <span id="fps">– fps</span></p>
+      </section>
+
+      <p id="status"></p>
+
+      <!-- Footer injected by the shared demo chrome (demoFooter). -->
+      <script type="module" src="/src/main.ts"></script>
+    </div>
+  </body>
+</html>

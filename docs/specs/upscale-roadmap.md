@@ -1,5 +1,25 @@
 # Upscale pipeline: FSR1 (done) → FSR3-class temporal (roadmap)
 
+> **2026-07-10 — SHIPPED as [`@pmndrs/upscaler`](https://github.com/pmndrs/upscaler)
+> (npm `@pmndrs/upscaler@0.1.0`).** The FSR3-class temporal upscaler this doc
+> scopes below is now a real, published library: AMD FSR1 (spatial) + FSR2/3-style
+> temporal, as raw WGSL compute passes on three's `WebGPURenderer` device, with a
+> composable TSL node (`upscale` / `upscaleScene` / `upscaleSpatial`) and an
+> imperative `Upscaler` class. It shares the denoiser's `GPUDevice` (grabs
+> `renderer.backend.device`) — no extra device, zero-copy.
+>
+> The new **`examples/upscale-pipeline`** demo wires it into the full
+> three.js → denoiser → upscaler chain on one device and **supersedes the FSR1
+> stage** baked into `three-pathtracer-webgpu` (`?fsr=1`, three's built-in
+> `FSR1Node`). That demo uses the library's **spatial** path — the honest fit for a
+> discrete, stills-oriented denoise pass; the temporal path (depth + per-frame
+> motion vectors + jitter) is the motion-first integration this doc still describes.
+>
+> **This document is now historical** — a record of the spike/scoping that led to
+> the library. For the shipped API see the `@pmndrs/upscaler` README and the
+> `upscale-pipeline` demo.
+
+
 ## Done: FSR1 stage (`examples/three-pathtracer-webgpu?fsr=1`)
 
 Pipeline: pathtracer (512, linear HDR) → denoiser (`hdr` model, `tonemapOutput`
