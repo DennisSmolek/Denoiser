@@ -1,11 +1,13 @@
-name: Deploy examples to GitHub Pages
+name: Deploy examples + docs to GitHub Pages
 
-# Builds the deployed examples into one static site and publishes it to
-# https://pmndrs.github.io/denoiser/ on every push to main.
+# One Pages site, two halves (the pmndrs/uikit pattern, base_path-verified):
+#   /            -> the demo site (tools/build-site.mjs -> _site/)
+#   /docs/       -> the pmndrs docs system's static export of docs/site/*.mdx
+# The reusable docs workflow uploads its own `github-pages` artifact, so the
+# bundle job merges both trees and deploys under a different artifact name.
 #
-# NOTE: a repo admin must enable Pages once before the first run can succeed —
-# Settings -> Pages -> Source: "GitHub Actions". Until then this workflow builds
-# fine but the deploy step will fail.
+# NOTE: Pages must be enabled once by a repo admin — Settings -> Pages ->
+# Source: "GitHub Actions".
 
 on:
   push:
@@ -18,8 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: build site
+  demos:
+    name: build demo site
     runs-on: ubuntu-latest
     steps:
       # Models are fetched from the jsDelivr CDN at runtime, so no git-LFS pull
@@ -42,18 +44,60 @@ jobs:
       # its built `denoiser` dist.
       - name: Build denoiser
         run: yarn workspace denoiser build
-      # Build the four deployed examples and assemble _site/ (landing page at the
+      # Build the deployed examples and assemble _site/ (landing page at the
       # root, each example under /<name>/). Same script local verification uses.
       - name: Build + assemble site
         run: node tools/build-site.mjs
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
+          name: demos
           path: _site
+
+  docs:
+    name: build docs site
+    # pmndrs docs system: Next.js static export of docs/site/*.mdx, built for
+    # the /denoiser/docs base path (same mechanism uikit uses for /uikit/docs).
+    # Uploads a Pages artifact named `github-pages` that the bundle job unpacks.
+    uses: pmndrs/docs/.github/workflows/build.yml@v3
+    with:
+      mdx: 'docs/site'
+      libname: 'Denoiser'
+      base_path: '/denoiser/docs'
+      home_redirect: '/getting-started/introduction'
+      github: 'https://github.com/pmndrs/denoiser'
+      discord: 'https://discord.gg/poimandres'
+
+  bundle:
+    name: merge demos + docs
+    needs: [demos, docs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: demos
+          path: ./site
+      # The docs job's artifact is a Pages tarball (artifact.tar) — unpack it
+      # under /docs/ in the merged tree.
+      - uses: actions/download-artifact@v4
+        with:
+          name: github-pages
+          path: ./docs-artifact
+      - name: Merge docs under /docs/
+        run: |
+          mkdir -p ./site/docs
+          tar -xf ./docs-artifact/artifact.tar -C ./site/docs
+      # deploy-pages needs a single-tar Pages artifact; `github-pages` is taken
+      # by the docs job, so the merged one gets its own name.
+      - name: Repack merged site
+        run: tar -cf deploy.tar -C ./site .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deploy
+          path: deploy.tar
 
   deploy:
     name: deploy
-    needs: build
+    needs: bundle
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -65,3 +109,5 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: deploy
