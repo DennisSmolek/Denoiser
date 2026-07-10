@@ -152,6 +152,28 @@
           </div>
         </a>
 
+        <a class="card" href="./aux-inputs/">
+          <img class="shot" src="./shots/aux-inputs.png" alt="aux-inputs demo screenshot: correct-aux baseline vs sRGB-corrupted-albedo denoise comparison" loading="lazy">
+          <div class="card-body">
+            <p class="card-title">Aux inputs, explained <span class="arrow">&#8594;</span></p>
+            <p class="card-desc">
+              What the network actually sees — albedo and normal conventions, plus
+              three real bugs you can toggle on and watch degrade the output.
+            </p>
+          </div>
+        </a>
+
+        <a class="card" href="./webgpu-raw/">
+          <img class="shot" src="./shots/webgpu-raw.png" alt="raw WebGPU demo screenshot: denoised Cornell box render with the live-denoise UI controls" loading="lazy">
+          <div class="card-body">
+            <p class="card-title">Raw WebGPU <span class="arrow">&#8594;</span></p>
+            <p class="card-desc">
+              No framework at all: a single-file WGSL path tracer and the denoiser
+              sharing one <code>GPUDevice</code> — the copy-paste integration recipe.
+            </p>
+          </div>
+        </a>
+
         <a class="card" href="./ldraw-eiffel/">
           <img class="shot" src="./shots/ldraw-eiffel.png" alt="LDraw Eiffel Tower demo screenshot: noisy vs denoised path-traced render" loading="lazy">
           <div class="card-body">
