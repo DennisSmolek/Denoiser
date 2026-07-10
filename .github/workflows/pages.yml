@@ -1,10 +1,16 @@
 name: Deploy examples + docs to GitHub Pages
 
-# One Pages site, two halves (the pmndrs/uikit pattern, base_path-verified):
+# One Pages site, two halves:
 #   /            -> the demo site (tools/build-site.mjs -> _site/)
 #   /docs/       -> the pmndrs docs system's static export of docs/site/*.mdx
-# The reusable docs workflow uploads its own `github-pages` artifact, so the
-# bundle job merges both trees and deploys under a different artifact name.
+#
+# The docs half runs ghcr.io/pmndrs/docs directly instead of the reusable
+# workflow (pmndrs/docs/.github/workflows/build.yml@v3): that workflow mounts
+# `./$MDX` at /app/docs but resolves $MDX inside the container, which only
+# agrees when the mdx tree is literally `docs/` at repo root. Ours lives at
+# docs/site/, so we run the same image with the mount and container path
+# aligned (-v ./docs/site:/app/docs + MDX=docs). Same builder, same env
+# contract, our layout.
 #
 # NOTE: Pages must be enabled once by a repo admin — Settings -> Pages ->
 # Source: "GitHub Actions".
@@ -55,49 +61,53 @@ jobs:
 
   docs:
     name: build docs site
-    # pmndrs docs system: Next.js static export of docs/site/*.mdx, built for
-    # the /denoiser/docs base path (same mechanism uikit uses for /uikit/docs).
-    # Uploads a Pages artifact named `github-pages` that the bundle job unpacks.
-    uses: pmndrs/docs/.github/workflows/build.yml@v3
-    with:
-      mdx: 'docs/site'
-      libname: 'Denoiser'
-      base_path: '/denoiser/docs'
-      home_redirect: '/getting-started/introduction'
-      github: 'https://github.com/pmndrs/denoiser'
-      discord: 'https://discord.gg/poimandres'
-
-  bundle:
-    name: merge demos + docs
-    needs: [demos, docs]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: demos
-          path: ./site
-      # The docs job's artifact is a Pages tarball (artifact.tar) — unpack it
-      # under /docs/ in the merged tree.
-      - uses: actions/download-artifact@v4
-        with:
-          name: github-pages
-          path: ./docs-artifact
-      - name: Merge docs under /docs/
+      - uses: actions/checkout@v4
+      - name: Build docs (pmndrs docs image)
         run: |
-          mkdir -p ./site/docs
-          tar -xf ./docs-artifact/artifact.tar -C ./site/docs
-      # deploy-pages needs a single-tar Pages artifact; `github-pages` is taken
-      # by the docs job, so the merged one gets its own name.
-      - name: Repack merged site
-        run: tar -cf deploy.tar -C ./site .
+          set -ex
+          docker run --rm --init \
+            -v "./docs/site":/app/docs \
+            -e MDX \
+            -e NEXT_PUBLIC_LIBNAME \
+            -e BASE_PATH \
+            -e DIST_DIR \
+            -e OUTPUT \
+            -e HOME_REDIRECT \
+            -e MDX_BASEURL \
+            -e SOURCECODE_BASEURL \
+            -e EDIT_BASEURL \
+            -e NEXT_PUBLIC_URL \
+            -e GITHUB \
+            -e DISCORD \
+            -e CONTRIBUTORS_PAT \
+            ghcr.io/pmndrs/docs:3 pnpm run build
+        env:
+          # Container-relative: the mdx tree is mounted AT /app/docs.
+          MDX: 'docs'
+          NEXT_PUBLIC_LIBNAME: 'Denoiser'
+          BASE_PATH: '/denoiser/docs'
+          # Container path: /app/docs/out/denoiser/docs (= host docs/site/out/...)
+          DIST_DIR: 'docs/out/denoiser/docs'
+          OUTPUT: 'export'
+          HOME_REDIRECT: '/getting-started/introduction'
+          # Host-truth paths for images / edit links (the real repo location).
+          MDX_BASEURL: 'https://github.com/${{ github.repository }}/raw/${{ github.ref_name }}/docs/site'
+          SOURCECODE_BASEURL: 'https://github.com/${{ github.repository }}/tree/${{ github.ref_name }}'
+          EDIT_BASEURL: 'https://github.com/${{ github.repository }}/edit/${{ github.ref_name }}/docs/site'
+          NEXT_PUBLIC_URL: 'https://pmndrs.github.io/denoiser/docs'
+          GITHUB: 'https://github.com/pmndrs/denoiser'
+          DISCORD: 'https://discord.gg/poimandres'
+          CONTRIBUTORS_PAT: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: deploy
-          path: deploy.tar
+          name: docs-site
+          path: docs/site/out/denoiser/docs
 
-  deploy:
-    name: deploy
-    needs: bundle
+  bundle-deploy:
+    name: merge + deploy
+    needs: [demos, docs]
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -106,8 +116,17 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: demos
+          path: ./site
+      - uses: actions/download-artifact@v4
+        with:
+          name: docs-site
+          path: ./site/docs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-        with:
-          artifact_name: deploy
