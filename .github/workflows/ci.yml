@@ -5,41 +5,70 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    name: build (denoiser)
+  node:
+    name: node (build + typecheck)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Corepack must be enabled BEFORE setup-node: its `cache: yarn` step shells
+      # out to yarn, and with a packageManager field pinning yarn 4 the stock
+      # yarn 1 shim refuses to run.
+      - name: Enable Corepack (yarn 4)
+        run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Enable Corepack (yarn 4)
-        run: corepack enable
+          cache: 'yarn'
+      # `examples/ldraw-eiffel` and `examples/three-pathtracer-webgpu` depend on
+      # `three-gpu-pathtracer` pinned to a git-branch commit SHA (see STATUS.md
+      # org-migration checklist) — `--immutable` still resolves it fine since the
+      # lockfile already records the resolved commit; this just means install
+      # fetches that ref fresh from GitHub each run (no local cache hit for it).
       - name: Install
         run: yarn install --immutable
-      # The shipping package: `build` runs `tsc` (typecheck) then rollup. Examples
-      # are untyped three-glue and need a git-branch dep + WebGPU, so they're not
-      # gated here. (No vitest suite exists yet — add a test job when one lands.)
+      # The shipping package: `build` runs `tsc` (typecheck) then rollup.
       - name: Build denoiser
         run: yarn workspace denoiser build
+      # Explicit `tsc --noEmit` per workspace that has a tsconfig. Skipped:
+      # `packages/denoiser-react` (still on the old v1 API, pending port/drop
+      # per STATUS.md) and `examples/ldraw-eiffel` / `examples/three-pathtracer-webgpu`
+      # (fail to typecheck headlessly against `three/webgpu`'s current .d.ts —
+      # pre-existing, unrelated to this change; re-check on three.js bumps).
+      - name: Typecheck workspaces
+        run: |
+          set -e
+          for ws in packages/denoiser examples/bench examples/denoiser-package-test examples/webgpu-ort-smoke; do
+            echo "::group::tsc --noEmit ($ws)"
+            (cd "$ws" && ../../node_modules/.bin/tsc --noEmit -p tsconfig.json)
+            echo "::endgroup::"
+          done
 
-  parity:
+  converter-parity:
     name: ONNX converter parity (CPU)
     runs-on: ubuntu-latest
     steps:
+      # `actions/checkout` with `lfs: true` runs `git lfs pull` itself, so the
+      # .tza blobs in packages/denoiser/tzas/ (git-LFS objects) are real content
+      # by the time this step finishes — no separate `git lfs checkout` needed.
       - uses: actions/checkout@v4
         with:
-          lfs: true # the .tza weights are git-lfs objects
-      - name: Checkout LFS objects
-        run: git lfs checkout
+          lfs: true
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: tools/onnx-convert/requirements.txt
       - name: Install converter deps
         run: pip install -r tools/onnx-convert/requirements.txt
       # NumPy reference of the U-Net graph vs the exported ONNX run through
-      # onnxruntime — validates the conversion is byte-faithful. Pure CPU.
+      # onnxruntime — validates the conversion is byte-faithful. Pure CPU, no
+      # PyTorch. Smallest weight file (rt_hdr_alb_nrm_small.tza, the script's
+      # default) keeps this fast (~0.3s locally); covers the standard topology.
       - name: Verify parity
         working-directory: tools/onnx-convert
-        run: python verify_parity.py
+        run: python verify_parity.py ../../packages/denoiser/tzas/rt_hdr_alb_nrm_small.tza
