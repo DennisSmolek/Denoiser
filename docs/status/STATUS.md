@@ -20,6 +20,11 @@ the rest locked behind hardware matrix units until WebGPU subgroup-matrix).
 
 ## Next actions (priority order)
 
+> **Phase B (2026-07-10): CODE COMPLETE — site + docs LIVE.**
+> https://pmndrs.github.io/denoiser/ = 9 demos; /docs/ = the full docs site.
+> Detail: [phase-b-plan.md](phase-b-plan.md). Launch gate = Dennis: FSR3 demo,
+> ONNX issue, docs.pmnd.rs redirect PR, `npm publish denoiser@2.0.0`.
+>
 > **Aux status (2026-07-09): FIX MERGED to `main` + on the org** (merge `e70a9b3`);
 > `splitAux` is default-on, artifacts live at `pmndrs/denoiser-weights@models-v2`.
 > **Upstream issue: standalone repro repo published →

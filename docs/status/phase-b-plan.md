@@ -1,9 +1,20 @@
 # Phase B plan — examples, docs site, launch
 
-_Last updated: 2026-07-09. The detailed execution plan for
+_Last updated: 2026-07-10. The detailed execution plan for
 [ROADMAP.md](ROADMAP.md) Phase B. Phase B gates the `denoiser@2.0.0` npm
 publish. FSR3 demos are sequenced last (the companion lib is being finalized
 in parallel)._
+
+> **STATUS 2026-07-10: B0–B4 code work COMPLETE.** Live: 9 demos at
+> https://pmndrs.github.io/denoiser/ (hello-world, gallery, aux-inputs,
+> webgpu-raw, babylon, realtime-compare, bench, ldraw-eiffel,
+> three-pathtracer-webgpu — all with screenshots) + the 14-page docs site at
+> /docs/ (pmndrs docs image run directly; the reusable workflow can't build a
+> nested mdx tree — see pages.yml comment). Remaining, all Dennis-gated:
+> FSR3 demo (#5, companion lib), docs.pmnd.rs redirect PR, npm publish
+> (B4.3 = the launch), ONNX issue filing. Deferred small items live in the
+> session todo/STATUS: Inspector-overhead spike, eslint config wiring,
+> upstream mdx-nesting bug report to pmndrs/docs.
 
 ## Shape of the work
 
